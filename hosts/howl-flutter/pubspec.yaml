@@ -1,0 +1,23 @@
+name: howl_sessions
+description: Flutter host for Howl Sessions, optionally with local Howl Instances.
+publish_to: none
+version: 0.1.0-dev+1
+
+environment:
+  sdk: ^3.13.3
+
+dependencies:
+  flutter:
+    sdk: flutter
+  howl_server_client:
+    path: ../../mods/server-client/bindings/dart
+  shared_preferences: ^2.5.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  shared_preferences_platform_interface: ^2.4.2
+
+flutter:
+  uses-material-design: true

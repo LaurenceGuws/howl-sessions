@@ -22,6 +22,13 @@ currently refuses nested Git configuration roots.
 The Server protocol and client are separately owned and versioned; consumers
 select the client without importing Server. The Odin host stages its exact
 VT/Render/Instance bindings from the same pinned packages while retaining its
-direct local Instance route. Next: a fresh Flutter product host, explicit
-C/Dart foreign-interface ownership and independent product qualification.
-Network follow/streaming is a later experiment.
+direct local Instance route.
+
+A **fresh Flutter host** is now under `hosts/howl-flutter`. Its `main.dart`
+only boots the app; endpoint preferences, Session tree, Instance selection and
+platform packaging have distinct owners. It uses the Dart bindings owned by
+`mods/server-client`, which invoke the exact C ABI in worker isolates.
+The live catalog and Session/Instance CRUD have an independent native proof.
+The native terminal attachment/render surface is **not yet integrated** into
+this new host, so it is a management canary rather than a terminal release.
+Network follow/streaming remains a later experiment.
