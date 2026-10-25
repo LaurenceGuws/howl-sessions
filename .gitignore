@@ -1,0 +1,6 @@
+.zig-cache/
+zig-out/
+zig-pkg/
+.dart_tool/
+.fvm/
+build/

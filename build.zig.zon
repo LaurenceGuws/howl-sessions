@@ -1,0 +1,23 @@
+.{
+    .name = .howl_sessions_workspace,
+    .version = "0.1.0-dev",
+    .fingerprint = 0x80b3d30b0bd5dad2,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        .server = .{ .path = "mods/server" },
+        .howl_cli = .{ .path = "hosts/howl-cli" },
+    },
+    .paths = .{
+        "AGENTS.md",
+        "README.md",
+        ".gitignore",
+        ".zig-audit.json",
+        ".zigversion",
+        "VERSION",
+        "snapshot.json",
+        "build.zig",
+        "build.zig.zon",
+        "mods",
+        "hosts",
+    },
+}

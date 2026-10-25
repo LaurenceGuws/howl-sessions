@@ -1,0 +1,1991 @@
+{
+  "schema": "howl.server.wire.v2/vectors",
+  "contract": "Server wire v2: one SRVR envelope with disjoint control and terminal tag sets. Exact attachment-ready carries Server, Session, Instance, catalogue revision and client identity; terminal interaction begins without a second handshake. Observation payload semantics and complete property ordering remain unchanged.",
+  "byte_order": "big-endian for every multi-byte integer",
+  "cases": [
+    {
+      "id": "server_hello",
+      "note": "Empty Server hello establishes the control connection under one framing version.",
+      "hex": "535256520201000000000000",
+      "expect": {
+        "frames": [
+          {
+            "kind": "hello",
+            "payload": {}
+          }
+        ],
+        "snapshots": []
+      }
+    },
+    {
+      "id": "attachment_ready",
+      "note": "One ready response establishes exact occurrence, catalogue revision and terminal client identity.",
+      "hex": "53525652020c000000000028000000000000005b0000000000000007000000000000000300000000000000020102030405060708",
+      "expect": {
+        "frames": [
+          {
+            "kind": "attach_ready",
+            "payload": {
+              "server_id": 91,
+              "session_id": 7,
+              "instance_id": 3,
+              "tree_revision": 2,
+              "client_id": 72623859790382856
+            }
+          }
+        ],
+        "snapshots": []
+      }
+    },
+    {
+      "id": "observe_history_window",
+      "note": "Observation request carries revision and history window offset in big endian.",
+      "hex": "53525652022000000000000c010203040506070811223344",
+      "expect": {
+        "frames": [
+          {
+            "kind": "observe",
+            "payload": {
+              "after_revision": 72623859790382856,
+              "history_offset": 287454020
+            }
+          }
+        ],
+        "snapshots": []
+      }
+    },
+    {
+      "id": "observe_raw_history_window",
+      "note": "Raw observation is a distinct framing-v8 request with the same revision/history payload; only the snapshot text transport differs.",
+      "hex": "53525652023900000000000c010203040506070811223344",
+      "expect": {
+        "frames": [
+          {
+            "kind": "observe_raw",
+            "payload": {
+              "after_revision": 72623859790382856,
+              "history_offset": 287454020
+            }
+          }
+        ],
+        "snapshots": []
+      }
+    },
+    {
+      "id": "observe_delta_history_window",
+      "note": "Delta observation names the exact prior revision/history window it can reuse; the endpoint may fall back to a complete raw snapshot.",
+      "hex": "53525652023b00000000000c010203040506070811223344",
+      "expect": {
+        "frames": [
+          {
+            "kind": "observe_delta",
+            "payload": {
+              "after_revision": 72623859790382856,
+              "history_offset": 287454020
+            }
+          }
+        ],
+        "snapshots": []
+      }
+    },
+    {
+      "id": "observe_packed_history_window",
+      "note": "Packed complete observation uses the same exact revision/history request payload; only complete text carriage changes.",
+      "hex": "53525652023e00000000000c010203040506070811223344",
+      "expect": {
+        "frames": [
+          {
+            "kind": "observe_packed",
+            "payload": {
+              "after_revision": 72623859790382856,
+              "history_offset": 287454020
+            }
+          }
+        ],
+        "snapshots": []
+      }
+    },
+    {
+      "id": "interaction_state_request",
+      "note": "Negotiated interaction-state observation is an explicit zero-byte request, separate from text_v1.",
+      "hex": "535256520229000000000000",
+      "expect": {
+        "frames": [
+          {
+            "kind": "interaction_state",
+            "payload": {}
+          }
+        ],
+        "snapshots": []
+      }
+    },
+    {
+      "id": "interaction_state_snapshot",
+      "note": "Mode-directed caller interaction state is correlated to one canonical terminal revision without changing text_v1.",
+      "hex": "53525652022a000000000014010203040506070800001ffd0403ff7f12340300",
+      "expect": {
+        "frames": [
+          {
+            "kind": "interaction_state_snapshot",
+            "payload": {
+              "terminal_revision": 72623859790382856,
+              "mouse_tracking": "any_event",
+              "mouse_protocol": "sgr_pixel",
+              "modify_other_keys": -1,
+              "kitty_keyboard_flags": 127,
+              "key_format_resource_4": 4660,
+              "pointer_mode": 3,
+              "keyboard_action_mode": true,
+              "auto_repeat": false,
+              "newline_mode": true,
+              "application_cursor_keys": true,
+              "application_keypad": true,
+              "meta_sends_escape": true,
+              "report_key_up": true,
+              "bracketed_paste": true,
+              "focus_reporting": true,
+              "termios_signals": true,
+              "alternate_scroll": true,
+              "paste_events": true,
+              "inband_resize_notifications": true
+            }
+          }
+        ],
+        "snapshots": []
+      }
+    },
+    {
+      "id": "interaction_state_reserved_byte",
+      "note": "Reserved interaction-state bytes remain canonical zero.",
+      "hex": "53525652022a000000000014010203040506070800001ffd0403ff7f12340301",
+      "error": "interaction_reserved"
+    },
+    {
+      "id": "input_raw_bytes_binary",
+      "note": "Raw byte compatibility lane is opaque and binary-safe.",
+      "hex": "5352565202240000000000050100ff1b41",
+      "expect": {
+        "frames": [
+          {
+            "kind": "input",
+            "payload": {
+              "kind": "bytes",
+              "bytes_hex": "00ff1b41"
+            }
+          }
+        ],
+        "snapshots": []
+      }
+    },
+    {
+      "id": "input_paste_binary",
+      "note": "Paste is semantic but transports exact binary payload including NUL.",
+      "hex": "53525652022400000000000402780079",
+      "expect": {
+        "frames": [
+          {
+            "kind": "input",
+            "payload": {
+              "kind": "paste",
+              "bytes_hex": "780079"
+            }
+          }
+        ],
+        "snapshots": []
+      }
+    },
+    {
+      "id": "input_typed_key_unicode",
+      "note": "Typed key carries physical identity, modifiers, action, alternate identities, legacy bytes, and committed UTF-8 text.",
+      "hex": "53525652022400000000001803020205030000006100000041000000e4000200011b6141",
+      "expect": {
+        "frames": [
+          {
+            "kind": "input",
+            "payload": {
+              "kind": "key",
+              "key": {
+                "kind": "unicode",
+                "key_value": 97,
+                "action": "repeat",
+                "modifiers": 5,
+                "shifted": 65,
+                "alternate": 228,
+                "legacy_len": 2,
+                "legacy_hex": "1b61",
+                "text_len": 1,
+                "text": "A"
+              }
+            }
+          }
+        ],
+        "snapshots": []
+      }
+    },
+    {
+      "id": "input_typed_mouse_pixels",
+      "note": "Typed mouse carries signed cell row, column, optional pixel coordinates, modifiers, and held-button state.",
+      "hex": "5352565202240000000000140403000205fffffffe12340101020304a1a2a3a4",
+      "expect": {
+        "frames": [
+          {
+            "kind": "input",
+            "payload": {
+              "kind": "mouse",
+              "mouse": {
+                "kind": "move",
+                "button": "none",
+                "modifiers": 2,
+                "buttons_down": 5,
+                "row": -2,
+                "column": 4660,
+                "pixel_x": 16909060,
+                "pixel_y": 2711790500
+              }
+            }
+          }
+        ],
+        "snapshots": []
+      }
+    },
+    {
+      "id": "input_typed_focus_in",
+      "note": "Focus transition is a one-byte semantic typed-input body.",
+      "hex": "5352565202240000000000020501",
+      "expect": {
+        "frames": [
+          {
+            "kind": "input",
+            "payload": {
+              "kind": "focus",
+              "focus": "in"
+            }
+          }
+        ],
+        "snapshots": []
+      }
+    },
+    {
+      "id": "assign_resize_leader",
+      "note": "Geometry leadership is assigned by explicit connection-local client id.",
+      "hex": "5352565202250000000000081122334455667788",
+      "expect": {
+        "frames": [
+          {
+            "kind": "assign_leader",
+            "payload": {
+              "client_id": 1234605616436508552
+            }
+          }
+        ],
+        "snapshots": []
+      }
+    },
+    {
+      "id": "resize_geometry",
+      "note": "Rows and columns with a zero cell-pixel pair preserve accepted pixel metrics.",
+      "hex": "5352565202260000000000080200040100000000",
+      "expect": {
+        "frames": [
+          {
+            "kind": "resize",
+            "payload": {
+              "rows": 512,
+              "columns": 1025,
+              "cell_pixel_width": 0,
+              "cell_pixel_height": 0
+            }
+          }
+        ],
+        "snapshots": []
+      }
+    },
+    {
+      "id": "signal_terminate",
+      "note": "Only the frozen semantic signal catalogue crosses the wire.",
+      "hex": "5352565202270000000000010f",
+      "expect": {
+        "frames": [
+          {
+            "kind": "signal",
+            "payload": {
+              "signal": "terminate"
+            }
+          }
+        ],
+        "snapshots": []
+      }
+    },
+    {
+      "id": "result_input_unsupported",
+      "note": "Command results correlate by request kind and bounded semantic result code.",
+      "hex": "5352565202280000000000022402",
+      "expect": {
+        "frames": [
+          {
+            "kind": "result",
+            "payload": {
+              "request_kind": "input",
+              "code": "unsupported"
+            }
+          }
+        ],
+        "snapshots": []
+      }
+    },
+    {
+      "id": "input_typed_key_legacy_limit",
+      "note": "511 legacy bytes are the exact accepted ceiling, preserving one byte of canonical VT scratch for Meta ESC prefixing.",
+      "hex": "535256520224000000000214030201000000000078000000000000000001ff000078787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878",
+      "expect": {
+        "frames": [
+          {
+            "kind": "input",
+            "payload": {
+              "kind": "key",
+              "key": {
+                "kind": "unicode",
+                "key_value": 120,
+                "action": "press",
+                "legacy_len": 511,
+                "text_len": 0
+              }
+            }
+          }
+        ],
+        "snapshots": []
+      }
+    },
+    {
+      "id": "snapshot_text_v1_complete",
+      "note": "Complete renderer-neutral text_v1 observation: one bounded zlib stream carries presentation, grapheme, wide-cell, style/color, and OSC 8 semantics.",
+      "hex": "535256520221000000000026000000000000000a000000000000001700000000000000070000000400010003000000010103535256520222000000000435000004cf78017594673c160a18c5dff7b54783285492d0320a2d8a060da2a944838c646784ca2adada29194d9a46da834a114a3469696ba14283c63feff5bb1fee877b3e9c679df37c3c428118923a6296712e539512b6360e209cfe07d1ccdf48ccf885e4949f484d6e417a5a3332537f203be73b72b3bf213fef2b0a739b509cd5483bc706da3b7fa183d3673a5a7f42c9aa1ee57175741a5b8bcaa88fa88efc40e731efe932fa1d6a766f519f5883c6a43774b57f4db709afe83efe259ab62fe861f31cadd067f40ca9463bec29bd163f4167d16374031fa117fc90de4155f489aca4efb207f48bbe4fffa87be847dcc520fc0e864b6f63b4a482011ee50c74bf85f182324c3c6f62ea7a83412ea50c762b61c8fc6286fa5d67986f1166018598fb5f63f8c2ab8cf02ac0c2e70a96de9719a97a89512af98cee92c798ce17b152ba8075c7f38ced748e71ca6719dffd0c13ba9dc6a6c7296c354f3251fd04766ab9d8773dce248d1c264b653345328ba932994c933ec674e1511c04479821719899a24338b63bc82cc50c9c3aa4e3dcfe00b3e5f63347761f7315f6324f7e0f2e8376e36a9ac6fc21a9b80d4ec17d60321e0376e16992c402e39d788dd8c1c2e189785b6ec7c7621bbec3b6e237740bfee69b0930db44a0ee4616e96c20a87702c17aeb09e9b98e50adb52ceeb58630edd5841bac22427f254b8ce2596a18c7b2be2b88ecb39ca8feb144f78b21e67e34b1f7a2585e19c98a07cb88bbbd94f88a25acbc1bc1aa3be1ac7e1ac69a278b59fb2c9475d521ac7f184c4255101b1e2f62e3a340361506b0f99a3f5baefbb1b5c8976d577cd87ed99bc4ab0bd951e0c5ceb20524ddf46457b907c9b7dc49297123b5783e69375cd95deac29eaff3d8db34977ddfe7b0ffdb6c0e7c7126fdb313198db338d8e0c8a1df3339fc6b064770e0e89fe91c6b9e46e68fa964fd9c4276cb6472de4ce2f86b7b72dfda71a26622275fd872eab90da75f4de0cccbf19cad1bc7b9dab19cff64cd857a2b2ebe1f43debbd1e47f1cc5a50f23b9bcdd922bdb2c28d83182ab89c3b9b6d99cc24d66146d1dc6f52d43294e1d4249ca604a770fe2469a2937934c28db69ccade48194ef1a4045bc11b7e30cb9b3ca80bb2bf5b917db9ffb31fd78b0a22f95cbfb5095d09b87ebf578b45197c71b7478b2a6174f576b53bdae27cfd66af1fc540f5e9cd4e4e599eebc3add8dd7c7bbf22647839a13eabccd55e35d5e17de5feccc874baa7ccc57a1f65c27eace2a537f41894fe73bf239bd035f0eb4a7e1603b1a331469daabc0d73df27cdb2fc7f77db2fcc894a1f998342dd952fccc92e4d761097e1f12f1e7a8108e08108a249094924646560e712ec82b28168bab484c0241446b44488884e2a0104324140905f1228192b68978252912583978b636e2c1a3552914dfffc1bf8eb6e9bf6c6fd0faa84df0ff3289368f466b110a54bc42420283cd8c8cbc02c27c0d3dc25dfd027d3dfe020d788e6153525652023400000000001c000000000000000000000000000000000000000a000000140000000053525652023d000000000024010000000000000000000000000000000000000000000000000000000000000000000000535256520223000000000008000000000000000a",
+      "expect": {
+        "frames": [
+          {
+            "kind": "snapshot_begin"
+          },
+          {
+            "kind": "snapshot_data"
+          },
+          {
+            "kind": "snapshot_graphics",
+            "payload": {
+              "generation": 0,
+              "content_generation": 0,
+              "images": [],
+              "placements": [],
+              "cell_pixel_width": 10,
+              "cell_pixel_height": 20
+            }
+          },
+          {
+            "kind": "snapshot_properties",
+            "payload": {
+              "title_hex": null,
+              "icon_hex": null,
+              "directory_kind": 0,
+              "directory_hex": null,
+              "remote_host_hex": null,
+              "shell_version": null,
+              "shell_name_hex": null,
+              "mark_kind": 0,
+              "mark_generation": 0,
+              "mark_status": null,
+              "mark_metadata_hex": "",
+              "progress_kind": 0,
+              "progress_value": 0
+            }
+          },
+          {
+            "kind": "snapshot_end"
+          }
+        ],
+        "snapshots": [
+          {
+            "begin": {
+              "revision": 10,
+              "terminal_revision": 23,
+              "history_count": 7,
+              "history_row_base": 4,
+              "rows": 1,
+              "columns": 3,
+              "cursor_column": 1,
+              "cursor_shape": 1,
+              "cursor_visible": true,
+              "cursor_blink": true
+            },
+            "presentation": {
+              "cursor_age_ns": 123456789,
+              "presence": 5,
+              "reverse_screen": true,
+              "palette_samples": {
+                "0": "0055ffff",
+                "1": "0154feff",
+                "255": "ffaa00ff"
+              },
+              "foreground": "010203ff",
+              "background": "040506ff",
+              "cursor": "070809ff",
+              "cursor_text": null,
+              "selection_background": "0a0b0cc8",
+              "selection_foreground": null
+            },
+            "rows": [
+              {
+                "wrapped": true,
+                "line_geometry": 0,
+                "columns": 3,
+                "cells": [
+                  {
+                    "scalars": [
+                      101,
+                      769
+                    ],
+                    "width": 1,
+                    "height": 1,
+                    "x": 0,
+                    "y": 0,
+                    "font": 2,
+                    "baseline": 1,
+                    "underline_style": 2,
+                    "protection": 1,
+                    "style": 133,
+                    "fg": {
+                      "kind": "rgb",
+                      "value": 1122867
+                    },
+                    "bg": {
+                      "kind": "indexed",
+                      "value": 4
+                    },
+                    "underline_color": {
+                      "kind": "rgb",
+                      "value": 4478310
+                    },
+                    "link_id": 1
+                  },
+                  {
+                    "scalars": [
+                      20013
+                    ],
+                    "width": 2,
+                    "height": 1,
+                    "x": 0,
+                    "y": 0,
+                    "semantic_width": true,
+                    "link_id": 0
+                  },
+                  {
+                    "scalars": [],
+                    "width": 2,
+                    "height": 1,
+                    "x": 1,
+                    "y": 0,
+                    "semantic_width": true,
+                    "link_id": 0
+                  }
+                ]
+              }
+            ],
+            "hyperlinks": [
+              {
+                "link_id": 1,
+                "uri_hex": "68747470733a2f2f686f776c2e6578616d706c65"
+              }
+            ],
+            "end": {
+              "revision": 10
+            },
+            "properties": {
+              "title_hex": null,
+              "icon_hex": null,
+              "directory_kind": 0,
+              "directory_hex": null,
+              "remote_host_hex": null,
+              "shell_version": null,
+              "shell_name_hex": null,
+              "mark_kind": 0,
+              "mark_generation": 0,
+              "mark_status": null,
+              "mark_metadata_hex": "",
+              "progress_kind": 0,
+              "progress_value": 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "snapshot_text_v1_raw_complete",
+      "note": "Raw observation carries the identical validated text_v1 records in snapshot_raw_data without a zlib envelope.",
+      "hex": "535256520221000000000026000000000000000a00000000000000170000000000000007000000040001000300000001010353525652023a0000000004cf010000000000042400000000075bcd15050100000055ffff0154feff0257fdff0356fcff0451fbff0550faff0653f9ff0752f8ff085df7ff095cf6ff0a5ff5ff0b5ef4ff0c59f3ff0d58f2ff0e5bf1ff0f5af0ff1045efff1144eeff1247edff1346ecff1441ebff1540eaff1643e9ff1742e8ff184de7ff194ce6ff1a4fe5ff1b4ee4ff1c49e3ff1d48e2ff1e4be1ff1f4ae0ff2075dfff2174deff2277ddff2376dcff2471dbff2570daff2673d9ff2772d8ff287dd7ff297cd6ff2a7fd5ff2b7ed4ff2c79d3ff2d78d2ff2e7bd1ff2f7ad0ff3065cfff3164ceff3267cdff3366ccff3461cbff3560caff3663c9ff3762c8ff386dc7ff396cc6ff3a6fc5ff3b6ec4ff3c69c3ff3d68c2ff3e6bc1ff3f6ac0ff4015bfff4114beff4217bdff4316bcff4411bbff4510baff4613b9ff4712b8ff481db7ff491cb6ff4a1fb5ff4b1eb4ff4c19b3ff4d18b2ff4e1bb1ff4f1ab0ff5005afff5104aeff5207adff5306acff5401abff5500aaff5603a9ff5702a8ff580da7ff590ca6ff5a0fa5ff5b0ea4ff5c09a3ff5d08a2ff5e0ba1ff5f0aa0ff60359fff61349eff62379dff63369cff64319bff65309aff663399ff673298ff683d97ff693c96ff6a3f95ff6b3e94ff6c3993ff6d3892ff6e3b91ff6f3a90ff70258fff71248eff72278dff73268cff74218bff75208aff762389ff772288ff782d87ff792c86ff7a2f85ff7b2e84ff7c2983ff7d2882ff7e2b81ff7f2a80ff80d57fff81d47eff82d77dff83d67cff84d17bff85d07aff86d379ff87d278ff88dd77ff89dc76ff8adf75ff8bde74ff8cd973ff8dd872ff8edb71ff8fda70ff90c56fff91c46eff92c76dff93c66cff94c16bff95c06aff96c369ff97c268ff98cd67ff99cc66ff9acf65ff9bce64ff9cc963ff9dc862ff9ecb61ff9fca60ffa0f55fffa1f45effa2f75dffa3f65cffa4f15bffa5f05affa6f359ffa7f258ffa8fd57ffa9fc56ffaaff55ffabfe54ffacf953ffadf852ffaefb51ffaffa50ffb0e54fffb1e44effb2e74dffb3e64cffb4e14bffb5e04affb6e349ffb7e248ffb8ed47ffb9ec46ffbaef45ffbbee44ffbce943ffbde842ffbeeb41ffbfea40ffc0953fffc1943effc2973dffc3963cffc4913bffc5903affc69339ffc79238ffc89d37ffc99c36ffca9f35ffcb9e34ffcc9933ffcd9832ffce9b31ffcf9a30ffd0852fffd1842effd2872dffd3862cffd4812bffd5802affd68329ffd78228ffd88d27ffd98c26ffda8f25ffdb8e24ffdc8923ffdd8822ffde8b21ffdf8a20ffe0b51fffe1b41effe2b71dffe3b61cffe4b11bffe5b01affe6b319ffe7b218ffe8bd17ffe9bc16ffeabf15ffebbe14ffecb913ffedb812ffeebb11ffefba10fff0a50ffff1a40efff2a70dfff3a60cfff4a10bfff5a00afff6a309fff7a208fff8ad07fff9ac06fffaaf05fffbae04fffca903fffda802fffeab01ffffaa00ff010203ff040506ff070809ff000000000a0b0cc80000000002000000000000790100000302010100000000000000020102010085020011223301000000040200445566000000010000006500000301010201000000000000010000000000000000000000000000000000000000000000000000004e2d0002010100000000000100000000000000000000000000000000000000000000000000030000000000001a00000001001468747470733a2f2f686f776c2e6578616d706c6553525652023400000000001c000000000000000000000000000000000000000a000000140000000053525652023d000000000024010000000000000000000000000000000000000000000000000000000000000000000000535256520223000000000008000000000000000a",
+      "expect": {
+        "frames": [
+          {
+            "kind": "snapshot_begin"
+          },
+          {
+            "kind": "snapshot_raw_data"
+          },
+          {
+            "kind": "snapshot_graphics",
+            "payload": {
+              "generation": 0,
+              "content_generation": 0,
+              "images": [],
+              "placements": [],
+              "cell_pixel_width": 10,
+              "cell_pixel_height": 20
+            }
+          },
+          {
+            "kind": "snapshot_properties",
+            "payload": {
+              "title_hex": null,
+              "icon_hex": null,
+              "directory_kind": 0,
+              "directory_hex": null,
+              "remote_host_hex": null,
+              "shell_version": null,
+              "shell_name_hex": null,
+              "mark_kind": 0,
+              "mark_generation": 0,
+              "mark_status": null,
+              "mark_metadata_hex": "",
+              "progress_kind": 0,
+              "progress_value": 0
+            }
+          },
+          {
+            "kind": "snapshot_end"
+          }
+        ],
+        "snapshots": [
+          {
+            "begin": {
+              "revision": 10,
+              "terminal_revision": 23,
+              "history_count": 7,
+              "history_row_base": 4,
+              "rows": 1,
+              "columns": 3,
+              "cursor_column": 1,
+              "cursor_shape": 1,
+              "cursor_visible": true,
+              "cursor_blink": true
+            },
+            "presentation": {
+              "cursor_age_ns": 123456789,
+              "presence": 5,
+              "reverse_screen": true,
+              "palette_samples": {
+                "0": "0055ffff",
+                "1": "0154feff",
+                "255": "ffaa00ff"
+              },
+              "foreground": "010203ff",
+              "background": "040506ff",
+              "cursor": "070809ff",
+              "cursor_text": null,
+              "selection_background": "0a0b0cc8",
+              "selection_foreground": null
+            },
+            "rows": [
+              {
+                "wrapped": true,
+                "line_geometry": 0,
+                "columns": 3,
+                "cells": [
+                  {
+                    "scalars": [
+                      101,
+                      769
+                    ],
+                    "width": 1,
+                    "height": 1,
+                    "x": 0,
+                    "y": 0,
+                    "font": 2,
+                    "baseline": 1,
+                    "underline_style": 2,
+                    "protection": 1,
+                    "style": 133,
+                    "fg": {
+                      "kind": "rgb",
+                      "value": 1122867
+                    },
+                    "bg": {
+                      "kind": "indexed",
+                      "value": 4
+                    },
+                    "underline_color": {
+                      "kind": "rgb",
+                      "value": 4478310
+                    },
+                    "link_id": 1
+                  },
+                  {
+                    "scalars": [
+                      20013
+                    ],
+                    "width": 2,
+                    "height": 1,
+                    "x": 0,
+                    "y": 0,
+                    "semantic_width": true,
+                    "link_id": 0
+                  },
+                  {
+                    "scalars": [],
+                    "width": 2,
+                    "height": 1,
+                    "x": 1,
+                    "y": 0,
+                    "semantic_width": true,
+                    "link_id": 0
+                  }
+                ]
+              }
+            ],
+            "hyperlinks": [
+              {
+                "link_id": 1,
+                "uri_hex": "68747470733a2f2f686f776c2e6578616d706c65"
+              }
+            ],
+            "end": {
+              "revision": 10
+            },
+            "properties": {
+              "title_hex": null,
+              "icon_hex": null,
+              "directory_kind": 0,
+              "directory_hex": null,
+              "remote_host_hex": null,
+              "shell_version": null,
+              "shell_name_hex": null,
+              "mark_kind": 0,
+              "mark_generation": 0,
+              "mark_status": null,
+              "mark_metadata_hex": "",
+              "progress_kind": 0,
+              "progress_value": 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "bad_magic",
+      "note": "Magic mismatch is rejected before payload interpretation.",
+      "hex": "4e4f5045010100000000000c000000000000000000000000",
+      "error": "header_magic"
+    },
+    {
+      "id": "bad_framing_version",
+      "note": "Unknown framing version is rejected.",
+      "hex": "53525652010100000000000c000000000000000000000000",
+      "error": "header_version"
+    },
+    {
+      "id": "header_reserved_bit",
+      "note": "Every reserved header bit is canonical zero.",
+      "hex": "53525652020101000000000c000000000000000000000000",
+      "error": "header_reserved"
+    },
+    {
+      "id": "unknown_frame_kind",
+      "note": "Unknown frame kind is rejected before payload parsing.",
+      "hex": "5352565202ff000000000000",
+      "error": "header_kind"
+    },
+    {
+      "id": "payload_over_limit",
+      "note": "Declared payload length is bounded before read/allocation.",
+      "hex": "535256520201000000100001",
+      "error": "payload_limit"
+    },
+    {
+      "id": "truncated_header",
+      "note": "Partial frame header cannot be interpreted.",
+      "hex": "5352565208",
+      "error": "truncated_header"
+    },
+    {
+      "id": "truncated_frame",
+      "note": "Declared payload must be fully present.",
+      "hex": "53525652020100000000000c0000",
+      "error": "truncated_frame"
+    },
+    {
+      "id": "hello_wrong_size",
+      "note": "Hello is exactly zero bytes; compatibility/version negotiation does not live in the attach payload.",
+      "hex": "53525652020100000000000100",
+      "error": "hello_size"
+    },
+    {
+      "id": "typed_key_unknown_action",
+      "note": "Unknown key transition action is rejected.",
+      "hex": "535256520224000000000015030200000000000078000000000000000000000000",
+      "error": "key_action"
+    },
+    {
+      "id": "typed_key_surrogate",
+      "note": "Surrogate halves are not Unicode scalar key identities.",
+      "hex": "53525652022400000000001503020100000000d800000000000000000000000000",
+      "error": "key_unicode"
+    },
+    {
+      "id": "typed_key_invalid_utf8",
+      "note": "Committed key text must be valid UTF-8.",
+      "hex": "535256520224000000000016030201000000000078000000000000000000000001ff",
+      "error": "key_text_utf8"
+    },
+    {
+      "id": "typed_key_legacy_over_limit",
+      "note": "512 legacy bytes are rejected; the frozen maximum is 511.",
+      "hex": "5352565202240000000002150302010000000000780000000000000000020000007878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878",
+      "error": "key_legacy_limit"
+    },
+    {
+      "id": "typed_key_noncanonical_optional",
+      "note": "Absent optional Unicode identities must carry zero storage.",
+      "hex": "535256520224000000000015030201000000000078000000410000000000000000",
+      "error": "key_shifted_canonical"
+    },
+    {
+      "id": "typed_mouse_unknown_button",
+      "note": "Unknown mouse button values are rejected.",
+      "hex": "5352565202240000000000140401ff0001000000000000000000000000000000",
+      "error": "mouse_button"
+    },
+    {
+      "id": "typed_mouse_noncanonical_pixels",
+      "note": "Absent pixel coordinates must be encoded as zero.",
+      "hex": "5352565202240000000000140401010001000000000000000000000100000002",
+      "error": "mouse_pixels_canonical"
+    },
+    {
+      "id": "typed_focus_unknown",
+      "note": "Unknown focus transition is rejected.",
+      "hex": "5352565202240000000000020503",
+      "error": "focus_value"
+    },
+    {
+      "id": "snapshot_reserved_flag",
+      "note": "Reserved snapshot-begin flag bit is rejected immediately.",
+      "hex": "5352565202210000000000260000000000000001000000000000000100000000000000000000000000000001000000000080",
+      "error": "snapshot_flags"
+    },
+    {
+      "id": "text_record_reserved_bit",
+      "note": "Text record reserved bytes are canonical zero.",
+      "hex": "53525652022100000000002600000000000000010000000000000001000000000000000000000000000000010000000000005352565202220000000000100000000878016364640003000017000353525652023400000000001c000000000000000000000000000000000000000a000000140000000053525652023d0000000000240100000000000000000000000000000000000000000000000000000000000000000000005352565202230000000000080000000000000001",
+      "error": "text_record_reserved"
+    },
+    {
+      "id": "text_unknown_style_bit",
+      "note": "Unknown text cell style bits are rejected rather than guessed.",
+      "hex": "53525652022100000000002600000000000000020000000000000002000000000000000000000000000100010000000000005352565202220000000003f30000045f78014d9477580f0a1486fbb53745252a5412a1282b94a894484ad1a21029493464642bc92852568892d1a0a1d2404546d911212323151169f05e5df78ffb3dcf79cff79defff2310ea92a87617255c2b94c4047f8c230866fd4678f62f449c3a119dd981985d3be20e6d48d8ff44d2bd1529b71f48cffb8eccdc16649dbf2137e72bf2aecd7473f942778bcf289837a138a5911e960df434fb84d2c47a94277f4465d2077a4d7f8feab477f49e51471fdbb7a859bf41ddea351a36afe83bb5967e412fe91ff802cd90e76805d7a01df08c01cb9fa2b3b29a812b9ea0bbee3183d6563178fd23f4c21e3224f4014357dd67d89a7be8afbe8b81d71d862fac64c4e20a0c17ddc6c8f316233d6e326ac10d46cf2f678cdf75c62ebd86b17f19e39695327e490913bcaf62e27b05539fcb4c542ac6ac671193540a99ac5c80b9c2252cbae763d9238f298ab958a95fc45a2d87a97db3b1d1c8629a6a26d37b5dc0b6cf7966f4cec04e2c9d99a269d84ba4e2207e8e5982b3380a9dc149e434b385539823770a67d9645cba25e12a7f1237a913b84b263257e638f3a48fe131f2289e4609cc1f7d8405a30eb370f821bc0c0eb2c8f0008b47c4e33d218e25e3f7e3631a8bafc93e968edd8bdf9818968d8bc6df780fcb07ec26407b172b06ee64a54e1481fd7710d42f9260aded846846b06a6838a143b6b15a7f2b6b866d61eda0cdacd3dd4498de46d60fdec08647ebd9f8308c4d8fd7b1b96a2d5beead61ebddd56c7b104af8fd55443c0f617b4d30912f83d8f12290a8ea95ec7cb2825dcf02d8fd74397bcafc892e5d46cc753ff65e5bcabe2bbec45ef6617fc912e2ae7a135fb19803b71771f08e17872a1772f8c6028e94cf27e19627476f7a70ecfb3c8eb7cc25b1d59d133fdc38d9ec4ad2171792bf3973eaeb1c527ecde674a7136770e4ecef599c6b7320f5a73d691d33496fb723a36e06e7dfda72e1fd7432df4d23eb950dd9b553c97963cdc5d756e4364e21afc192fccf165c6a32a7e0e3640a3f4ca2e89319c5f513b91c6bca957d265c8d9b40c9fef194468fa36c8f31d7f68ee57acc18ca8f8ce6c6e151dc3c3a925b0946dc3e604845fc082a0f0de7ce4103ee6ed5e7de9661dc0f1fca836d4378b8518f471b0653b579108f37e9f264e740aaa37478ba7b00cf766953b35d8be7119abcd8d19f9791fda8cdeecbab2c0d5e5f54e74d8e1a6fcff7a12ea337ef3255797fa1171f0a55f858a04c7db1129f8a7ad290d783c65c459a2e29f039bf3b5f92bad17c529eafa7e4f8962c4bcb7119be1f93e6c709295a1325f9992a41db3971dad3c5e84813a5f3b408bf5284f97d5600678410088b202a268e84a4145d7f415a46b6bc6b0b77414848efcf08fee8dff017ff35ffbbfcb566ff00be8c839953525652023400000000001c000000000000000000000000000000000000000a000000140000000053525652023d0000000000240100000000000000000000000000000000000000000000000000000000000000000000005352565202230000000000080000000000000002",
+      "error": "text_style_bits"
+    },
+    {
+      "id": "text_unresolved_hyperlink",
+      "note": "Every hyperlink id referenced by captured rows must resolve exactly once before snapshot end.",
+      "hex": "53525652022100000000002600000000000000020000000000000002000000000000000000000000000100010000000000005352565202220000000003eb0000045f7801759467580e0c14867bdbcb4c242244916c251565944825a5528490999248c3aaa4d020b3a44225211a9451665b51f60815d24069979bbeffdf7d5de77e9e739dff4720d48da84ab725ec8ae4c504ff8a15082cff206cdd85c8924e4417752066de8ef8e236242c5a915cd682947d33d20e4dc82cff8dac6d233d6c1ae869f78b5e4b7fd27bee0ffacca9a7af511d7286b5f433a8415eff3bfd67573360d63714167e65a0c91714cdaa18645ac960e30a94e67d66c8824f0c9dff1165f772866dfbc0f01def19b1fd1d2aae6f19e9f286516eaf51ddfa0a359f978cf67ec198ddcf51df55c6d89da568783c639cd753c67b9630614d3113573f6192531193d716326565015357e4a3e99887d6aa5ca66dce417bd363a66f79848ef34374d73f406fdd7d666cbcc7cc0dd9e8cb6761d0ef2eb306dc6176ffdbcce9738bb9bd333194cbc0a8ef4de629ddc078703af387a6b160482a26035358a8701dd341d730534cc65cec2a8b44af60217199c5e249580a2e612594c812918b580b2760d3231e5bd93896f6ba805dcff3d84b9d6399642ccb656270908e66c5d4b3ac9c12c52aad33386a46b27a62046b269c66ede453384d3ac93abd13acd73dce8699c7d838239c4dda47d93ced08ce3a616c991e8acbc8105c5582d9aa7a18b75187d836ec20eeca416c1f11c88ee107f0d00860e7d8fd788ef7c76b9c1fdea37df151dbc72ef5bdec1eb3873dcf77b3b76c17fb5efae0fbc21bbfa75ef89778b2bf742701cf3c38f07e0781efb61354eecec10fdb38f4da8dc3afb612fcd69590372e843eda42d843678ee46ce6e8e34d84dfdbc8b1ec0d1c7fb09e13f7d771b2c88953856b395dbc868827ab89cc73e44cee2aa20a5672367f05d14d0ec4fc5e4e6ccb32ce35db73fe971d177e2e25aed196f8061b12baacb9d8b98444acb8f4c792a4b6c55c6eb5e04ac722aeb69b935c65c6b54a53ae7f5d48ca1713523f2d20ede37cd22b8cb9f1791e37eb8cc8a83524f3c75c6ed5cfe176f56cee7c9bc5dd1a03b2beeb937d6c26f7c26770ff841e0f8eebf2304c8747a1d3797c549b9c23d3c83da3455ea426f967a752103585c25393293a3989271113293e3d8112fff13cf51bc7b3000d4af78fa56caf3acff78ce185ef685eee53e3d561555e1f1ac59b9091bc0d56e15de008de1f18ce8783c3280f52e663da503ea50ee1f30d252ad20753796d1055c98a7c4919c8d7eb0a7cbb3380eadbfdf99e254fcddd7ed466c85177b32ff5b7faf023b3373f2ff4e2d7f99e34c4f7a0314e96df313234454bd37c4e8a9658495a2f4bd096244efb55313aae88d2795184ae0461fe5c1240a21002611144c5c4919094a2fb2f48cbc8e676a770b78484d4ff8de01fff2dffafeebbc95fbe6a83a353525652023400000000001c000000000000000000000000000000000000000a000000140000000053525652023d0000000000240100000000000000000000000000000000000000000000000000000000000000000000005352565202230000000000080000000000000002",
+      "error": "text_unresolved_hyperlink"
+    },
+    {
+      "id": "snapshot_data_without_begin",
+      "note": "Snapshot data is meaningful only between begin and end.",
+      "hex": "535256520222000000000003616263",
+      "error": "snapshot_data_without_begin"
+    },
+    {
+      "id": "snapshot_end_without_begin",
+      "note": "Snapshot end cannot appear without an active observation cut.",
+      "hex": "5352565202230000000000080000000000000001",
+      "error": "snapshot_end_without_begin"
+    },
+    {
+      "id": "server_attachment_setup",
+      "note": "Both directions concatenate as a framing witness: Server hello/welcome, exact attach and ready; no terminal hello follows.",
+      "hex": "535256520201000000000000535256520202000000000020000000000000005b00000000000000020001000100100010000000000000000053525652020b0000000000100000000000000007000000000000000353525652020c000000000028000000000000005b0000000000000007000000000000000300000000000000020102030405060708",
+      "expect": {
+        "frames": [
+          {
+            "kind": "hello",
+            "payload": {}
+          },
+          {
+            "kind": "welcome",
+            "payload": {
+              "server_id": 91,
+              "tree_revision": 2,
+              "session_count": 1,
+              "instance_count": 1,
+              "session_capacity": 16,
+              "instances_per_session": 16
+            }
+          },
+          {
+            "kind": "attach_instance",
+            "payload": {
+              "session_id": 7,
+              "instance_id": 3
+            }
+          },
+          {
+            "kind": "attach_ready",
+            "payload": {
+              "server_id": 91,
+              "session_id": 7,
+              "instance_id": 3,
+              "tree_revision": 2,
+              "client_id": 72623859790382856
+            }
+          }
+        ],
+        "snapshots": []
+      }
+    },
+    {
+      "id": "snapshot_corrupt_compression",
+      "note": "Corrupt zlib snapshot bytes are rejected before text semantics are exposed.",
+      "hex": "535256520221000000000026000000000000000a000000000000001700000000000000070000000400010003000000010103535256520222000000000435000004cf78017594673c160a18c5dff7b54783285492d0320a2d8a060da2a944838c646784ca2adada29194d9a46da834a114a3469696ba14283c63feff5bb1fee877b3e9c679df37c3c428118923a6296712e539512b6360e209cfe07d1ccdf48ccf885e4949f484d6e417a5a3332537f203be73b72b3bf213fef2b0a739b509cd5483bc706da3b7fa183d3673a5a7f42c9aa1ee57175741a5b8bcaa88fa88efc40e731efe932fa1d6a766f519f5883c6a43774b57f4db709afe83efe259ab62fe861f31cadd067f40ca9463bec29bd163f4167d16374031fa117fc90de4155f489aca4efb207f48bbe4fffa87be847dcc520fc0e864b6f63b4a482011ee50c74bf85f182324c3c6f62ea7a83412ea50c762b61c8fc6286fa5d67986f1166018598fb5f63f8c2ab8cf02ac0c2e70a96de9719a97a89512af98cee92c798ce17b152ba8075c7f38ced748e71ca6719dffd0c13ba9dc6a6c7296c354f3251fd04766ab9d8773dce248d1c264b653345328ba932994c933ec674e1511c04479821719899a24338b63bc82cc50c9c3aa4e3dcfe00b3e5f63347761f7315f6324f7e0f2e8376e36a9ac6fc21a9b80d4ec17d60321e0376e16992c402e39d788dd8c1c2e189785b6ec7c7621bbec3b6e237740bfee69b0930db44a0ee4616e96c20a87702c17aeb09e9b98e50adb52ceeb58630edd5841bac22427f254b8ce2596a18c7b2be2b88ecb39ca8feb144f78b21e67e34b1f7a2585e19c98a07cb88bbbd94f88a25acbc1bc1aa3be1ac7e1ac69a278b59fb2c9475d521ac7f184c4255101b1e2f62e3a340361506b0f99a3f5baefbb1b5c8976d577cd87ed99bc4ab0bd951e0c5ceb20524ddf46457b907c9b7dc49297123b5783e69375cd95deac29eaff3d8db34977ddfe7b0ffdb6c0e7c7126fdb313198db338d8e0c8a1df3339fc6b064770e0e89fe91c6b9e46e68fa964fd9c4276cb6472de4ce2f86b7b72dfda71a26622275fd872eab90da75f4de0cccbf19cad1bc7b9dab19cff64cd857a2b2ebe1f43debbd1e47f1cc5a50f23b9bcdd922bdb2c28d83182ab89c3b9b6d99cc24d66146d1dc6f52d43294e1d4249ca604a770fe2469a2937934c28db69ccade48194ef1a4045bc11b7e30cb9b3ca80bb2bf5b917db9ffb31fd78b0a22f95cbfb5095d09b87ebf578b45197c71b7478b2a6174f576b53bdae27cfd66af1fc540f5e9cd4e4e599eebc3add8dd7c7bbf22647839a13eabccd55e35d5e17de5feccc874baa7ccc57a1f65c27eace2a537f41894fe73bf239bd035f0eb4a7e1603b1a331469daabc0d73df27cdb2fc7f77db2fcc894a1f998342dd952fccc92e4d761097e1f12f1e7a8108e08108a249094924646560e712ec82b28168bab484c0241446b44488884e2a0104324140905f1228192b68978252912583978b636e2c1a3552914dfffc1bf8eb6e9bf6c6fd0faa84df0ff3289368f466b110a54bc42420283cd8c8cbc02c27c0d3dc25dfd027d3dfe020d788e9e53525652023400000000001c000000000000000000000000000000000000000a000000140000000053525652023d000000000024010000000000000000000000000000000000000000000000000000000000000000000000535256520223000000000008000000000000000a",
+      "error": "snapshot_compression"
+    },
+    {
+      "id": "snapshot_raw_length_over_limit",
+      "note": "Declared uncompressed snapshot length is bounded before allocation or decompression.",
+      "hex": "535256520221000000000026000000000000000a000000000000001700000000000000070000000400010003000000010103535256520222000000000005004000017853525652023400000000001c000000000000000000000000000000000000000a000000140000000053525652023d000000000024010000000000000000000000000000000000000000000000000000000000000000000000535256520223000000000008000000000000000a",
+      "error": "snapshot_raw_limit"
+    },
+    {
+      "id": "text_extract_signed_range",
+      "note": "Selection extraction carries two inclusive stable points plus expected geometry and screen-bank identity.",
+      "hex": "535256520232000000000010fffe1dc0020101234567ffff12340100",
+      "expect": {
+        "frames": [
+          {
+            "kind": "text_extract",
+            "payload": {
+              "start": {
+                "row": -123456,
+                "column": 513
+              },
+              "end": {
+                "row": 19088743,
+                "column": 65535
+              },
+              "columns": 4660,
+              "alternate_screen": true
+            }
+          }
+        ],
+        "snapshots": []
+      }
+    },
+    {
+      "id": "text_extract_data_utf8",
+      "note": "Selected text response is opaque bounded UTF-8 and may contain grapheme scalars and newlines.",
+      "hex": "53525652023300000000000665cc810acebb",
+      "expect": {
+        "frames": [
+          {
+            "kind": "text_extract_data",
+            "payload": {
+              "text": "e\u0301\n\u03bb"
+            }
+          }
+        ],
+        "snapshots": []
+      }
+    },
+    {
+      "id": "text_extract_wrong_size",
+      "note": "Selection extraction request has one fixed twelve-byte payload.",
+      "hex": "53525652023200000000000f000000000000000000000000000000",
+      "error": "text_extract_size"
+    },
+    {
+      "id": "image_request_exact_generation",
+      "note": "Image pixels are fetched separately by the exact id and content generation advertised by a snapshot graphics manifest.",
+      "hex": "53525652023500000000000c000000070000000000000009",
+      "expect": {
+        "frames": [
+          {
+            "kind": "image_request",
+            "payload": {
+              "image_id": 7,
+              "generation": 9
+            }
+          }
+        ],
+        "snapshots": []
+      }
+    },
+    {
+      "id": "image_resource_rgba8",
+      "note": "One exact RGBA8 generation is bounded by begin/data/end framing independently of the 4 MiB text snapshot.",
+      "hex": "5352565202360000000000180000000700000000000000090000000200000002000000105352565202370000000000100102030405060708090a0b0c0d0e0f1053525652023800000000000c000000070000000000000009",
+      "expect": {
+        "frames": [
+          {
+            "kind": "image_begin",
+            "payload": {
+              "image_id": 7,
+              "generation": 9,
+              "width": 2,
+              "height": 2,
+              "byte_count": 16
+            }
+          },
+          {
+            "kind": "image_data",
+            "payload": {
+              "bytes": 16
+            }
+          },
+          {
+            "kind": "image_end",
+            "payload": {
+              "image_id": 7,
+              "generation": 9
+            }
+          }
+        ],
+        "snapshots": [],
+        "image_resources": [
+          {
+            "begin": {
+              "image_id": 7,
+              "generation": 9
+            },
+            "bytes": 16,
+            "end": {
+              "image_id": 7,
+              "generation": 9
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "image_begin_wrong_rgba_bytes",
+      "note": "RGBA8 byte count must exactly equal width times height times four.",
+      "hex": "53525652023600000000001800000007000000000000000900000002000000020000000f",
+      "error": "image_begin_bytes"
+    },
+    {
+      "id": "snapshot_graphics_manifest",
+      "note": "The v3 snapshot keeps text_v1 unchanged and carries one separate lightweight visible graphics manifest before snapshot_end.",
+      "hex": "535256520221000000000026000000000000000500000000000000060000000000000000000000000001000100000000000053525652022200000000002c0000045b780163640001161530354a8c86c068088c86008e10608288ab0329460646461caae0c200bcb70056535256520234000000000064000000000000000b000000000000000a0000000a0000001400010001000000070000000000000009000000020000000200000007000000000000000c000000000000000000000000000000020000000200000000000000000000000200000002fffffffd53525652023d0000000000240100000000000000000000000000000000000000000000000000000000000000000000005352565202230000000000080000000000000005",
+      "expect": {
+        "frames": [
+          {
+            "kind": "snapshot_begin",
+            "payload": {
+              "revision": 5,
+              "terminal_revision": 6,
+              "rows": 1,
+              "columns": 1
+            }
+          },
+          {
+            "kind": "snapshot_data",
+            "payload": {
+              "bytes": 44
+            }
+          },
+          {
+            "kind": "snapshot_graphics",
+            "payload": {
+              "generation": 11,
+              "content_generation": 10,
+              "images": [
+                {
+                  "image_id": 7,
+                  "generation": 9,
+                  "width": 2,
+                  "height": 2
+                }
+              ],
+              "placements": [
+                {
+                  "image_id": 7,
+                  "generation": 12,
+                  "row": 0,
+                  "column": 0,
+                  "source_x": 0,
+                  "source_y": 0,
+                  "source_width": 2,
+                  "source_height": 2,
+                  "cell_x": 0,
+                  "cell_y": 0,
+                  "pixel_width": 2,
+                  "pixel_height": 2,
+                  "z": -3
+                }
+              ],
+              "cell_pixel_width": 10,
+              "cell_pixel_height": 20
+            }
+          },
+          {
+            "kind": "snapshot_properties",
+            "payload": {
+              "title_hex": null,
+              "icon_hex": null,
+              "directory_kind": 0,
+              "directory_hex": null,
+              "remote_host_hex": null,
+              "shell_version": null,
+              "shell_name_hex": null,
+              "mark_kind": 0,
+              "mark_generation": 0,
+              "mark_status": null,
+              "mark_metadata_hex": "",
+              "progress_kind": 0,
+              "progress_value": 0
+            }
+          },
+          {
+            "kind": "snapshot_end",
+            "payload": {
+              "revision": 5
+            }
+          }
+        ],
+        "snapshots": [
+          {
+            "graphics": {
+              "generation": 11,
+              "content_generation": 10,
+              "images": [
+                {
+                  "image_id": 7,
+                  "generation": 9,
+                  "width": 2,
+                  "height": 2
+                }
+              ],
+              "placements": [
+                {
+                  "image_id": 7,
+                  "generation": 12,
+                  "row": 0,
+                  "column": 0,
+                  "source_x": 0,
+                  "source_y": 0,
+                  "source_width": 2,
+                  "source_height": 2,
+                  "cell_x": 0,
+                  "cell_y": 0,
+                  "pixel_width": 2,
+                  "pixel_height": 2,
+                  "z": -3
+                }
+              ],
+              "cell_pixel_width": 10,
+              "cell_pixel_height": 20
+            },
+            "properties": {
+              "title_hex": null,
+              "icon_hex": null,
+              "directory_kind": 0,
+              "directory_hex": null,
+              "remote_host_hex": null,
+              "shell_version": null,
+              "shell_name_hex": null,
+              "mark_kind": 0,
+              "mark_generation": 0,
+              "mark_status": null,
+              "mark_metadata_hex": "",
+              "progress_kind": 0,
+              "progress_value": 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "snapshot_text_delta_v2_reuses_exact_baseline_row",
+      "note": "A complete raw revision 10 baseline is followed by observe_delta(after_revision=10); revision 11 carries explicit row_shift=0, changes row 0 and reuses row 1 from the named baseline.",
+      "hex": "535256520221000000000026000000000000000a000000000000000a0000000000000000000000000002000100000000000153525652023a000000000492010000000000042400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000020000000000002b00000001010101000000000000000000000000000000000000000000000000000000000000000000000041020000000000002b0000000101010100000000000000000000000000000000000000000000000000000000000000000000005a53525652023400000000001c0000000000000001000000000000000100000008000000100000000053525652023d000000000024010000000000000000000000000000000000000000000000000000000000000000000000535256520223000000000008000000000000000a53525652023b00000000000c000000000000000a00000000535256520221000000000026000000000000000b000000000000000b0000000000000000000000000002000100000000000153525652023c00000000047101000000000004240000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000020000020000000000002b00000001010101000000000000000000000000000000000000000000000000000000000000000000000042020000000000000053525652023400000000001c0000000000000001000000000000000100000008000000100000000053525652023d000000000024010000000000000000000000000000000000000000000000000000000000000000000000535256520223000000000008000000000000000b",
+      "expect": {
+        "frames": [
+          {
+            "kind": "snapshot_begin"
+          },
+          {
+            "kind": "snapshot_raw_data"
+          },
+          {
+            "kind": "snapshot_graphics"
+          },
+          {
+            "kind": "snapshot_properties",
+            "payload": {
+              "title_hex": null,
+              "icon_hex": null,
+              "directory_kind": 0,
+              "directory_hex": null,
+              "remote_host_hex": null,
+              "shell_version": null,
+              "shell_name_hex": null,
+              "mark_kind": 0,
+              "mark_generation": 0,
+              "mark_status": null,
+              "mark_metadata_hex": "",
+              "progress_kind": 0,
+              "progress_value": 0
+            }
+          },
+          {
+            "kind": "snapshot_end"
+          },
+          {
+            "kind": "observe_delta",
+            "payload": {
+              "after_revision": 10,
+              "history_offset": 0
+            }
+          },
+          {
+            "kind": "snapshot_begin"
+          },
+          {
+            "kind": "snapshot_delta_data"
+          },
+          {
+            "kind": "snapshot_graphics"
+          },
+          {
+            "kind": "snapshot_properties",
+            "payload": {
+              "title_hex": null,
+              "icon_hex": null,
+              "directory_kind": 0,
+              "directory_hex": null,
+              "remote_host_hex": null,
+              "shell_version": null,
+              "shell_name_hex": null,
+              "mark_kind": 0,
+              "mark_generation": 0,
+              "mark_status": null,
+              "mark_metadata_hex": "",
+              "progress_kind": 0,
+              "progress_value": 0
+            }
+          },
+          {
+            "kind": "snapshot_end"
+          }
+        ],
+        "snapshots": [
+          {
+            "encoding": "raw",
+            "begin": {
+              "revision": 10,
+              "rows": 2,
+              "columns": 1
+            },
+            "rows": [
+              {
+                "cells": [
+                  {
+                    "scalars": [
+                      65
+                    ]
+                  }
+                ]
+              },
+              {
+                "cells": [
+                  {
+                    "scalars": [
+                      90
+                    ]
+                  }
+                ]
+              }
+            ],
+            "properties": {
+              "title_hex": null,
+              "icon_hex": null,
+              "directory_kind": 0,
+              "directory_hex": null,
+              "remote_host_hex": null,
+              "shell_version": null,
+              "shell_name_hex": null,
+              "mark_kind": 0,
+              "mark_generation": 0,
+              "mark_status": null,
+              "mark_metadata_hex": "",
+              "progress_kind": 0,
+              "progress_value": 0
+            }
+          },
+          {
+            "encoding": "delta",
+            "begin": {
+              "revision": 11,
+              "rows": 2,
+              "columns": 1
+            },
+            "rows": [
+              {
+                "cells": [
+                  {
+                    "scalars": [
+                      66
+                    ]
+                  }
+                ]
+              },
+              {
+                "cells": [
+                  {
+                    "scalars": [
+                      90
+                    ]
+                  }
+                ]
+              }
+            ],
+            "properties": {
+              "title_hex": null,
+              "icon_hex": null,
+              "directory_kind": 0,
+              "directory_hex": null,
+              "remote_host_hex": null,
+              "shell_version": null,
+              "shell_name_hex": null,
+              "mark_kind": 0,
+              "mark_generation": 0,
+              "mark_status": null,
+              "mark_metadata_hex": "",
+              "progress_kind": 0,
+              "progress_value": 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "snapshot_delta_missing_named_baseline",
+      "note": "Delta data cannot be decoded without the complete raw revision named by observe_delta.",
+      "hex": "53525652023b00000000000c000000000000000a00000000535256520221000000000026000000000000000b000000000000000b0000000000000000000000000002000100000000000153525652023c00000000047101000000000004240000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000020000020000000000002b00000001010101000000000000000000000000000000000000000000000000000000000000000000000042020000000000000053525652023400000000001c0000000000000001000000000000000100000008000000100000000053525652023d000000000024010000000000000000000000000000000000000000000000000000000000000000000000535256520223000000000008000000000000000b",
+      "error": "snapshot_delta_baseline"
+    },
+    {
+      "id": "snapshot_text_delta_v2_shifts_named_baseline_rows",
+      "note": "A complete raw A,Z baseline is shifted upward by one row. Delta row 0 reuses baseline row 1 (Z); the newly exposed bottom row is sent in full as B.",
+      "hex": "535256520221000000000026000000000000000a000000000000000a0000000000000000000000000002000100000000000153525652023a000000000492010000000000042400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000020000000000002b00000001010101000000000000000000000000000000000000000000000000000000000000000000000041020000000000002b0000000101010100000000000000000000000000000000000000000000000000000000000000000000005a53525652023400000000001c0000000000000001000000000000000100000008000000100000000053525652023d000000000024010000000000000000000000000000000000000000000000000000000000000000000000535256520223000000000008000000000000000a53525652023b00000000000c000000000000000a00000000535256520221000000000026000000000000000b000000000000000b0000000000000001000000000002000100000000000153525652023c000000000471010000000000042400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000040000000000000200010200000000000000020000000000002b0000000101010100000000000000000000000000000000000000000000000000000000000000000000004253525652023400000000001c0000000000000001000000000000000100000008000000100000000053525652023d000000000024010000000000000000000000000000000000000000000000000000000000000000000000535256520223000000000008000000000000000b",
+      "expect": {
+        "frames": [
+          {
+            "kind": "snapshot_begin"
+          },
+          {
+            "kind": "snapshot_raw_data"
+          },
+          {
+            "kind": "snapshot_graphics"
+          },
+          {
+            "kind": "snapshot_properties",
+            "payload": {
+              "title_hex": null,
+              "icon_hex": null,
+              "directory_kind": 0,
+              "directory_hex": null,
+              "remote_host_hex": null,
+              "shell_version": null,
+              "shell_name_hex": null,
+              "mark_kind": 0,
+              "mark_generation": 0,
+              "mark_status": null,
+              "mark_metadata_hex": "",
+              "progress_kind": 0,
+              "progress_value": 0
+            }
+          },
+          {
+            "kind": "snapshot_end"
+          },
+          {
+            "kind": "observe_delta",
+            "payload": {
+              "after_revision": 10,
+              "history_offset": 0
+            }
+          },
+          {
+            "kind": "snapshot_begin"
+          },
+          {
+            "kind": "snapshot_delta_data"
+          },
+          {
+            "kind": "snapshot_graphics"
+          },
+          {
+            "kind": "snapshot_properties",
+            "payload": {
+              "title_hex": null,
+              "icon_hex": null,
+              "directory_kind": 0,
+              "directory_hex": null,
+              "remote_host_hex": null,
+              "shell_version": null,
+              "shell_name_hex": null,
+              "mark_kind": 0,
+              "mark_generation": 0,
+              "mark_status": null,
+              "mark_metadata_hex": "",
+              "progress_kind": 0,
+              "progress_value": 0
+            }
+          },
+          {
+            "kind": "snapshot_end"
+          }
+        ],
+        "snapshots": [
+          {
+            "encoding": "raw",
+            "begin": {
+              "revision": 10,
+              "rows": 2,
+              "columns": 1
+            },
+            "rows": [
+              {
+                "cells": [
+                  {
+                    "scalars": [
+                      65
+                    ]
+                  }
+                ]
+              },
+              {
+                "cells": [
+                  {
+                    "scalars": [
+                      90
+                    ]
+                  }
+                ]
+              }
+            ],
+            "properties": {
+              "title_hex": null,
+              "icon_hex": null,
+              "directory_kind": 0,
+              "directory_hex": null,
+              "remote_host_hex": null,
+              "shell_version": null,
+              "shell_name_hex": null,
+              "mark_kind": 0,
+              "mark_generation": 0,
+              "mark_status": null,
+              "mark_metadata_hex": "",
+              "progress_kind": 0,
+              "progress_value": 0
+            }
+          },
+          {
+            "encoding": "delta",
+            "begin": {
+              "revision": 11,
+              "rows": 2,
+              "columns": 1
+            },
+            "rows": [
+              {
+                "cells": [
+                  {
+                    "scalars": [
+                      90
+                    ]
+                  }
+                ]
+              },
+              {
+                "cells": [
+                  {
+                    "scalars": [
+                      66
+                    ]
+                  }
+                ]
+              }
+            ],
+            "properties": {
+              "title_hex": null,
+              "icon_hex": null,
+              "directory_kind": 0,
+              "directory_hex": null,
+              "remote_host_hex": null,
+              "shell_version": null,
+              "shell_name_hex": null,
+              "mark_kind": 0,
+              "mark_generation": 0,
+              "mark_status": null,
+              "mark_metadata_hex": "",
+              "progress_kind": 0,
+              "progress_value": 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "snapshot_text_delta_v2_rejects_exposed_row_reuse",
+      "note": "After row_shift=1 the newly exposed bottom row has no baseline source and therefore cannot use a zero-row reuse marker.",
+      "hex": "535256520221000000000026000000000000000a000000000000000a0000000000000000000000000002000100000000000153525652023a000000000492010000000000042400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000020000000000002b00000001010101000000000000000000000000000000000000000000000000000000000000000000000041020000000000002b0000000101010100000000000000000000000000000000000000000000000000000000000000000000005a53525652023400000000001c0000000000000001000000000000000100000008000000100000000053525652023d000000000024010000000000000000000000000000000000000000000000000000000000000000000000535256520223000000000008000000000000000a53525652023b00000000000c000000000000000a00000000535256520221000000000026000000000000000b000000000000000b0000000000000001000000000002000100000000000153525652023c000000000446010000000000042400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000040000000000000200010200000000000000020000000000000053525652023400000000001c0000000000000001000000000000000100000008000000100000000053525652023d000000000024010000000000000000000000000000000000000000000000000000000000000000000000535256520223000000000008000000000000000b",
+      "error": "snapshot_delta_shift_exposed_reuse"
+    },
+    {
+      "id": "resize_exact_cell_pixels",
+      "note": "Geometry leader supplies exact 11x24 pixel cells.",
+      "hex": "53525652022600000000000800260051000b0018",
+      "expect": {
+        "frames": [
+          {
+            "kind": "resize",
+            "payload": {
+              "rows": 38,
+              "columns": 81,
+              "cell_pixel_width": 11,
+              "cell_pixel_height": 24
+            }
+          }
+        ],
+        "snapshots": []
+      }
+    },
+    {
+      "id": "resize_mixed_pixel_pair",
+      "note": "One missing pixel metric is malformed.",
+      "hex": "53525652022600000000000800260051000b0000",
+      "error": "resize_pixels"
+    },
+    {
+      "id": "resize_old_payload",
+      "note": "V8 refuses the old four-byte resize payload.",
+      "hex": "53525652022600000000000400260051",
+      "error": "resize_size"
+    },
+    {
+      "id": "old_v7_header",
+      "note": "Older executable/client bundles fail the complete framing boundary.",
+      "hex": "535256520701000000000000",
+      "error": "header_version"
+    },
+    {
+      "id": "snapshot_complete_properties",
+      "note": "Optional empty icon differs from absent; shell mark and progress belong to the same coherent cut.",
+      "hex": "535256520221000000000026000000000000000500000000000000060000000000000000000000000001000100000000000053525652022200000000002c0000045b780163640001161530354a8c86c068088c86008e10608288ab0329460646461caae0c200bcb70056535256520234000000000064000000000000000b000000000000000a0000000a0000001400010001000000070000000000000009000000020000000200000007000000000000000c000000000000000000000000000000020000000200000000000000000000000200000002fffffffd53525652023d00000000004f017f014400000007000000000000002affffffff013f0000000600000011000c0004000468c3a96c6c6f66696c653a2f2f2f686f6d652f7465737474657374406578616d706c656261736869643d375352565202230000000000080000000000000005",
+      "expect": {
+        "frames": [
+          {
+            "kind": "snapshot_begin",
+            "payload": {
+              "revision": 5,
+              "terminal_revision": 6,
+              "rows": 1,
+              "columns": 1
+            }
+          },
+          {
+            "kind": "snapshot_data",
+            "payload": {
+              "bytes": 44
+            }
+          },
+          {
+            "kind": "snapshot_graphics",
+            "payload": {
+              "generation": 11,
+              "content_generation": 10,
+              "images": [
+                {
+                  "image_id": 7,
+                  "generation": 9,
+                  "width": 2,
+                  "height": 2
+                }
+              ],
+              "placements": [
+                {
+                  "image_id": 7,
+                  "generation": 12,
+                  "row": 0,
+                  "column": 0,
+                  "source_x": 0,
+                  "source_y": 0,
+                  "source_width": 2,
+                  "source_height": 2,
+                  "cell_x": 0,
+                  "cell_y": 0,
+                  "pixel_width": 2,
+                  "pixel_height": 2,
+                  "z": -3
+                }
+              ],
+              "cell_pixel_width": 10,
+              "cell_pixel_height": 20
+            }
+          },
+          {
+            "kind": "snapshot_properties",
+            "payload": {
+              "title_hex": "68c3a96c6c6f",
+              "icon_hex": "",
+              "directory_kind": 1,
+              "directory_hex": "66696c653a2f2f2f686f6d652f74657374",
+              "remote_host_hex": "74657374406578616d706c65",
+              "shell_version": 7,
+              "shell_name_hex": "62617368",
+              "mark_kind": 68,
+              "mark_generation": 42,
+              "mark_status": -1,
+              "mark_metadata_hex": "69643d37",
+              "progress_kind": 1,
+              "progress_value": 63
+            }
+          },
+          {
+            "kind": "snapshot_end",
+            "payload": {
+              "revision": 5
+            }
+          }
+        ],
+        "snapshots": [
+          {
+            "graphics": {
+              "generation": 11,
+              "content_generation": 10,
+              "images": [
+                {
+                  "image_id": 7,
+                  "generation": 9,
+                  "width": 2,
+                  "height": 2
+                }
+              ],
+              "placements": [
+                {
+                  "image_id": 7,
+                  "generation": 12,
+                  "row": 0,
+                  "column": 0,
+                  "source_x": 0,
+                  "source_y": 0,
+                  "source_width": 2,
+                  "source_height": 2,
+                  "cell_x": 0,
+                  "cell_y": 0,
+                  "pixel_width": 2,
+                  "pixel_height": 2,
+                  "z": -3
+                }
+              ],
+              "cell_pixel_width": 10,
+              "cell_pixel_height": 20
+            },
+            "properties": {
+              "title_hex": "68c3a96c6c6f",
+              "icon_hex": "",
+              "directory_kind": 1,
+              "directory_hex": "66696c653a2f2f2f686f6d652f74657374",
+              "remote_host_hex": "74657374406578616d706c65",
+              "shell_version": 7,
+              "shell_name_hex": "62617368",
+              "mark_kind": 68,
+              "mark_generation": 42,
+              "mark_status": -1,
+              "mark_metadata_hex": "69643d37",
+              "progress_kind": 1,
+              "progress_value": 63
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "snapshot_missing_properties",
+      "note": "Required coherent property envelope is exact.",
+      "hex": "535256520221000000000026000000000000000500000000000000060000000000000000000000000001000100000000000053525652022200000000002c0000045b780163640001161530354a8c86c068088c86008e10608288ab0329460646461caae0c200bcb70056535256520234000000000064000000000000000b000000000000000a0000000a0000001400010001000000070000000000000009000000020000000200000007000000000000000c000000000000000000000000000000020000000200000000000000000000000200000002fffffffd5352565202230000000000080000000000000005",
+      "error": "snapshot_properties_missing"
+    },
+    {
+      "id": "snapshot_duplicate_properties",
+      "note": "Required coherent property envelope is exact.",
+      "hex": "535256520221000000000026000000000000000500000000000000060000000000000000000000000001000100000000000053525652022200000000002c0000045b780163640001161530354a8c86c068088c86008e10608288ab0329460646461caae0c200bcb70056535256520234000000000064000000000000000b000000000000000a0000000a0000001400010001000000070000000000000009000000020000000200000007000000000000000c000000000000000000000000000000020000000200000000000000000000000200000002fffffffd53525652023d00000000002401000000000000000000000000000000000000000000000000000000000000000000000053525652023d0000000000240100000000000000000000000000000000000000000000000000000000000000000000005352565202230000000000080000000000000005",
+      "error": "properties_duplicate"
+    },
+    {
+      "id": "properties_unknown_version",
+      "note": "Reject malformed bounded properties.",
+      "hex": "535256520221000000000026000000000000000500000000000000060000000000000000000000000001000100000000000053525652022200000000002c0000045b780163640001161530354a8c86c068088c86008e10608288ab0329460646461caae0c200bcb70056535256520234000000000064000000000000000b000000000000000a0000000a0000001400010001000000070000000000000009000000020000000200000007000000000000000c000000000000000000000000000000020000000200000000000000000000000200000002fffffffd53525652023d0000000000240200000000000000000000000000000000000000000000000000000000000000000000005352565202230000000000080000000000000005",
+      "error": "properties_header"
+    },
+    {
+      "id": "properties_reserved",
+      "note": "Reject malformed bounded properties.",
+      "hex": "535256520221000000000026000000000000000500000000000000060000000000000000000000000001000100000000000053525652022200000000002c0000045b780163640001161530354a8c86c068088c86008e10608288ab0329460646461caae0c200bcb70056535256520234000000000064000000000000000b000000000000000a0000000a0000001400010001000000070000000000000009000000020000000200000007000000000000000c000000000000000000000000000000020000000200000000000000000000000200000002fffffffd53525652023d0000000000240100000000000000000000000000000000000000000001000000000000000000000000005352565202230000000000080000000000000005",
+      "error": "properties_header"
+    },
+    {
+      "id": "properties_bad_progress",
+      "note": "Reject malformed bounded properties.",
+      "hex": "535256520221000000000026000000000000000500000000000000060000000000000000000000000001000100000000000053525652022200000000002c0000045b780163640001161530354a8c86c068088c86008e10608288ab0329460646461caae0c200bcb70056535256520234000000000064000000000000000b000000000000000a0000000a0000001400010001000000070000000000000009000000020000000200000007000000000000000c000000000000000000000000000000020000000200000000000000000000000200000002fffffffd53525652023d0000000000240100000000000000000000000000000000000000050000000000000000000000000000005352565202230000000000080000000000000005",
+      "error": "properties_progress"
+    },
+    {
+      "id": "properties_bad_percent",
+      "note": "Reject malformed bounded properties.",
+      "hex": "535256520221000000000026000000000000000500000000000000060000000000000000000000000001000100000000000053525652022200000000002c0000045b780163640001161530354a8c86c068088c86008e10608288ab0329460646461caae0c200bcb70056535256520234000000000064000000000000000b000000000000000a0000000a0000001400010001000000070000000000000009000000020000000200000007000000000000000c000000000000000000000000000000020000000200000000000000000000000200000002fffffffd53525652023d0000000000240100000000000000000000000000000000000000006500000000000000000000000000005352565202230000000000080000000000000005",
+      "error": "properties_progress"
+    },
+    {
+      "id": "properties_hidden_value",
+      "note": "Reject malformed bounded properties.",
+      "hex": "535256520221000000000026000000000000000500000000000000060000000000000000000000000001000100000000000053525652022200000000002c0000045b780163640001161530354a8c86c068088c86008e10608288ab0329460646461caae0c200bcb70056535256520234000000000064000000000000000b000000000000000a0000000a0000001400010001000000070000000000000009000000020000000200000007000000000000000c000000000000000000000000000000020000000200000000000000000000000200000002fffffffd53525652023d0000000000240100000000000000000000000000000000000000000100000000000000000000000000005352565202230000000000080000000000000005",
+      "error": "properties_progress"
+    },
+    {
+      "id": "reject_previous_v8",
+      "note": "v8 cannot silently omit current canonical properties.",
+      "hex": "535256520801000000000000",
+      "error": "header_version"
+    },
+    {
+      "id": "snapshot_text_v1_packed_verbatim",
+      "note": "Packed complete observation may carry a rich row verbatim when run packing would expand it; unpack reconstructs exact text_v1 before semantic decoding.",
+      "hex": "535256520221000000000026000000000000000a00000000000000170000000000000007000000040001000300000001010353525652023f000000000437000004cf000004d0789c6d9467580d0c1886cf399d764969502849880a192d2d85a4acb22285129a4a0315a58caca250995945b664447622333352a428249bd2fd753e7ebaafeb7dde79bd3f1fa14082d840a2b29ea51ad292810708dd5b104df88dd4f866c4639a901efd0b99713f911dfb03b9a9df919ff20d85695f51f4fa82d2a4cf284ffc441bcf4654267fa4ad5303aa8e1f501bf69e7643dfa16e5f8f865d1d9a43dea2e5f086f6aeb574185983f6a8d7e8b855d3d1f9159d86bfa4b34b15ba232ad19bff822ee115e8473ea76bc4330c42cbe916f214c3b027749ff7981e318fe8b9e82146710fe8155b46efe8fb1847ddc364e15d4c17dca18fef6dfacebc45bf59a598f9dda4bfcf0d0678973070c675064d2fc63cf01a160157b10cbe8255d065ac675f62b0ff456ce65ec0764e11761ae7b1573f878356214334cfe2a87a06a7b6a719daee14c3d40a18dee924ce1df319a17b0297cec719d9e118aeed8fe2a6738451da87192d7d8831e2838c95cd639ccc01dc85fbf110e4325e2a8709a27d4c54decb24a53d4c56d98d679b5d4c91cf66aadc4ebc1477304d613bde03b6e1d37f2bd3076d61c6c02c66f6cdc4b74f067e669b99d56f13fe833732db3a9d39b669ccb5d94080c57a02cd5309b24a21d8721d21ddd6126ab08679dd571366b88af02ec9ccd75b4944d71544ea2f27ca7819d1bd9358609ac84293a52cea99404c8f78627b2d21ce68318b1fc4b1a42c96f84731243c5cc4d2bb0b49bcb380a4fbd12cbb17c5f2e791ac7816c1ca17f349ae0867d59330563f9ec79af250d63e0d61dd9560522e07917a2d90f55703d870612e69457348bf349b8d17fdd9543a8bcd37fdc8b8ed4be6ad99645d9fc196e2e96cbde1c3b6126fb67f9dc68e2f5eecfc3e95ec6f53d8d5e8c9ee8f93d9f379127b3f4d64dfef09e4348f27170ff6b7b873e0e738f27e8ce560d3180efd1acde1d7a33852edc6d15a578ed58ce478950b272a4790ffca99932f8753f07e18a7de0de5748313673e3872f6ed100adf3870aede9ef3757614a5d97261830d17370ee652ba359753acb8b2ce92abeb2db8966a4ef196415ccf1a48c9b601dcd8da9f9b9bcd28ddd48f5b997db99dd1873b89a6dc5d6ac2bd65c6dc4fea4dd9925e3c586cc4c3849e3c8aefc1e3d5dd79b2ca90a76bbb51bec680672bbaf27cb93e15c95d78b1528fca13ba541defcccb939d7895df91ea233abc3eac4dcdb10ed41e6dcf9b422dde9ed5a4eebc06f5e7d47977aa1def0bd4f870469586d36df9b85b85c65d6df8b45799cf7b94f8b24391afdb15f8962dcff79d72fcc893e5e701197e1d92a6e9a098e61c297eef13d1b25f08b902842229c4d232c8cac923f1050545a56249164944208816b47a84944828710a0922a1482848140954f5cd2423b148e0e8e1d75a481adfd64ba164ff3f7fd33f71336e7df4e7e08ffe0b29890804daad2114a8fb87878784599a9afa07470698f846f9048604f8fe0791188e6153525652023400000000001c000000000000000000000000000000000000000a000000140000000053525652023d000000000024010000000000000000000000000000000000000000000000000000000000000000000000535256520223000000000008000000000000000a",
+      "expect": {
+        "frames": [
+          {
+            "kind": "snapshot_begin"
+          },
+          {
+            "kind": "snapshot_packed_data",
+            "payload": {
+              "bytes": 1079
+            }
+          },
+          {
+            "kind": "snapshot_graphics",
+            "payload": {
+              "generation": 0,
+              "content_generation": 0,
+              "images": [],
+              "placements": [],
+              "cell_pixel_width": 10,
+              "cell_pixel_height": 20
+            }
+          },
+          {
+            "kind": "snapshot_properties",
+            "payload": {
+              "title_hex": null,
+              "icon_hex": null,
+              "directory_kind": 0,
+              "directory_hex": null,
+              "remote_host_hex": null,
+              "shell_version": null,
+              "shell_name_hex": null,
+              "mark_kind": 0,
+              "mark_generation": 0,
+              "mark_status": null,
+              "mark_metadata_hex": "",
+              "progress_kind": 0,
+              "progress_value": 0
+            }
+          },
+          {
+            "kind": "snapshot_end"
+          }
+        ],
+        "snapshots": [
+          {
+            "begin": {
+              "revision": 10,
+              "terminal_revision": 23,
+              "history_count": 7,
+              "history_row_base": 4,
+              "rows": 1,
+              "columns": 3,
+              "cursor_column": 1,
+              "cursor_shape": 1,
+              "cursor_visible": true,
+              "cursor_blink": true
+            },
+            "presentation": {
+              "cursor_age_ns": 123456789,
+              "presence": 5,
+              "reverse_screen": true,
+              "palette_samples": {
+                "0": "0055ffff",
+                "1": "0154feff",
+                "255": "ffaa00ff"
+              },
+              "foreground": "010203ff",
+              "background": "040506ff",
+              "cursor": "070809ff",
+              "cursor_text": null,
+              "selection_background": "0a0b0cc8",
+              "selection_foreground": null
+            },
+            "rows": [
+              {
+                "wrapped": true,
+                "line_geometry": 0,
+                "columns": 3,
+                "cells": [
+                  {
+                    "scalars": [
+                      101,
+                      769
+                    ],
+                    "width": 1,
+                    "height": 1,
+                    "x": 0,
+                    "y": 0,
+                    "font": 2,
+                    "baseline": 1,
+                    "underline_style": 2,
+                    "protection": 1,
+                    "style": 133,
+                    "fg": {
+                      "kind": "rgb",
+                      "value": 1122867
+                    },
+                    "bg": {
+                      "kind": "indexed",
+                      "value": 4
+                    },
+                    "underline_color": {
+                      "kind": "rgb",
+                      "value": 4478310
+                    },
+                    "link_id": 1
+                  },
+                  {
+                    "scalars": [
+                      20013
+                    ],
+                    "width": 2,
+                    "height": 1,
+                    "x": 0,
+                    "y": 0,
+                    "semantic_width": true,
+                    "link_id": 0
+                  },
+                  {
+                    "scalars": [],
+                    "width": 2,
+                    "height": 1,
+                    "x": 1,
+                    "y": 0,
+                    "semantic_width": true,
+                    "link_id": 0
+                  }
+                ]
+              }
+            ],
+            "hyperlinks": [
+              {
+                "link_id": 1,
+                "uri_hex": "68747470733a2f2f686f776c2e6578616d706c65"
+              }
+            ],
+            "end": {
+              "revision": 10
+            },
+            "properties": {
+              "title_hex": null,
+              "icon_hex": null,
+              "directory_kind": 0,
+              "directory_hex": null,
+              "remote_host_hex": null,
+              "shell_version": null,
+              "shell_name_hex": null,
+              "mark_kind": 0,
+              "mark_generation": 0,
+              "mark_status": null,
+              "mark_metadata_hex": "",
+              "progress_kind": 0,
+              "progress_value": 0
+            },
+            "encoding": "packed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "snapshot_text_v1_packed_runs",
+      "note": "Packed complete observation expands one real Zig-produced attribute run into four exact text_v1 cells before ordinary semantic decoding.",
+      "hex": "535256520221000000000026000000000000000a00000000000000170000000000000007000000040001000400000001010353525652023f000000000409000004d400000473789c1594675ccd011885efbdddf6a045492191ac241a285a246424abc8cc8a246516494a514aa2882832432823bba514ca28bba844a8941179fcfee7c3f39e73deef472c1224351228ef51a22d2b14ee209efa0fc9f47664a6fd453af90fb293da9073fb8dfc945f28ccfe89a2e70f94bc5a519ed382caccefa8ce6846cda3890eb31ae9e8f40d75c7af688cf982e6e806b4ec3ea33dea139d1ceae96cff119d0975e88eafa5cbc41af45c3fd075ec7bf49dab31185745379777740f784b8f356f305cfb9a9e81af30f27b49af552fe8ed5f89f1ea0afa043dc764d333fa6e7e4abfe027f45f5fce8075650cdcf818d30d8f18b4e821660b4b19bcb80473ef070c9957ccd0b945582cb88fe5fc42ac561460ed93cf30df3c86afcc65c4d27bd82cb98bedf23b8c5c769b51dab7b0d3ba897de71b3874cac151fd3a4e1daf315af32a6334aee0ac9fcdd8ae59b874bbcc38834b8cd7bdc8049d4c5cf52e30b1cb7926c99e63b2348329f26771933bc354f169dc45a798267392e99213cc504d67a6ca7166753886875a1a9e8aa9cc5638ca1ce5237829a53077e861e60d39c47ccb6416581c64a1d901160d4ac2db3c91c583f7b3c4661f4b4724b06ce45e96dbc6e363bd87155671ac1c1e8befb0ddacea15839f5134ab8d77e1df7b276b7a4411d03d92c09e3b586b18c1ba01e1acefbf9d0da6616c1cb88d4d26a104f5d94a70bf1036f7ddc296a79b097912ccd6e741843edbc4b6c71b097bb481ede5eb092f5b47c4ebb5ec781548e4db00a2deac6167a53fbb2a5613fdd28f9817abd89de74b6cee4ae20a56b027df87f83bcbd97b7b1909f796b2efee12f6972c26f18137490f1771a0742107ef2f20b9703e878ae771b8682e29ad5e1c6999c3d19fb349fde1495a9307c71a6771fcfb4cd29b6770a27d3a27ff4ee314ee9cfe379533bfdd38fb6b0a197f2673ae6d12e76b2672e1832b997513b8583b9e4b55e3b8fcce85acf763c9ae76e6ca97315c6d18cdb56f4e5cffea484ebd03373eda73f3b31db73e8de2f6de91dc89b7e5ee3e1bee258c2037763879bb8791bfc79a82382b0a932db97fd082a2c343293e34840789e694ec1f4ce901331e260de25198298fb70da42c7c00e5dbfbf324a41f4fb7f4e559a809cfb7f6a1629731953b7bf322a6172fa38d78b5a327af230c7913d583b791dd7977b91b55970ca8ced6e77d56573e5cd0a3e67c176a2fea5297a9c3c71b9da9cfe9c4a75bda7cbea945c3554dbe5cd1e0eb7575be5deb48e3b10e34a5a9d19caecaf7e32ab41c51a63545891fa98afc3caac0afb3f2fc3e2347db3959fe6448f97b5286f61312fe9d16c3291162890c525939e415141176414959a550b8120122518a301152915824150b4e90442c118bc22422754373a1924a448eeedec243487602ec05380870fc0f684f86da53525652023400000000001c000000000000000000000000000000000000000a000000140000000053525652023d000000000024010000000000000000000000000000000000000000000000000000000000000000000000535256520223000000000008000000000000000a",
+      "expect": {
+        "frames": [
+          {
+            "kind": "snapshot_begin",
+            "payload": {
+              "revision": 10,
+              "terminal_revision": 23,
+              "rows": 1,
+              "columns": 4
+            }
+          },
+          {
+            "kind": "snapshot_packed_data",
+            "payload": {
+              "bytes": 1033
+            }
+          },
+          {
+            "kind": "snapshot_graphics"
+          },
+          {
+            "kind": "snapshot_properties"
+          },
+          {
+            "kind": "snapshot_end",
+            "payload": {
+              "revision": 10
+            }
+          }
+        ],
+        "snapshots": [
+          {
+            "begin": {
+              "revision": 10,
+              "terminal_revision": 23,
+              "rows": 1,
+              "columns": 4
+            },
+            "rows": [
+              {
+                "columns": 4,
+                "cells": [
+                  {
+                    "scalars": [
+                      65
+                    ],
+                    "link_id": 0
+                  },
+                  {
+                    "scalars": [
+                      66
+                    ],
+                    "link_id": 0
+                  },
+                  {
+                    "scalars": [
+                      67
+                    ],
+                    "link_id": 0
+                  },
+                  {
+                    "scalars": [
+                      68
+                    ],
+                    "link_id": 0
+                  }
+                ]
+              }
+            ],
+            "encoding": "packed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "snapshot_packed_length_mismatch",
+      "note": "Packed envelope length is exact; a larger declared packed body cannot be satisfied by the zlib stream.",
+      "hex": "535256520221000000000026000000000000000a00000000000000170000000000000007000000040001000400000001010353525652023f000000000409000004d400000474789c1594675ccd011885efbdddf6a045492191ac241a285a246424abc8cc8a246516494a514aa2882832432823bba514ca28bba844a8941179fcfee7c3f39e73deef472c1224351228ef51a22d2b14ee209efa0fc9f47664a6fd453af90fb293da9073fb8dfc945f28ccfe89a2e70f94bc5a519ed382caccefa8ce6846cda3890eb31ae9e8f40d75c7af688cf982e6e806b4ec3ea33dea139d1ceae96cff119d0975e88eafa5cbc41af45c3fd075ec7bf49dab31185745379777740f784b8f356f305cfb9a9e81af30f27b49af552fe8ed5f89f1ea0afa043dc764d333fa6e7e4abfe027f45f5fce8075650cdcf818d30d8f18b4e821660b4b19bcb80473ef070c9957ccd0b945582cb88fe5fc42ac561460ed93cf30df3c86afcc65c4d27bd82cb98bedf23b8c5c769b51dab7b0d3ba897de71b3874cac151fd3a4e1daf315af32a6334aee0ac9fcdd8ae59b874bbcc38834b8cd7bdc8049d4c5cf52e30b1cb7926c99e63b2348329f26771933bc354f169dc45a798267392e99213cc504d67a6ca7166753886875a1a9e8aa9cc5638ca1ce5237829a53077e861e60d39c47ccb6416581c64a1d901160d4ac2db3c91c583f7b3c4661f4b4724b06ce45e96dbc6e363bd87155671ac1c1e8befb0ddacea15839f5134ab8d77e1df7b276b7a4411d03d92c09e3b586b18c1ba01e1acefbf9d0da6616c1cb88d4d26a104f5d94a70bf1036f7ddc296a79b097912ccd6e741843edbc4b6c71b097bb481ede5eb092f5b47c4ebb5ec781548e4db00a2deac6167a53fbb2a5613fdd28f9817abd89de74b6cee4ae20a56b027df87f83bcbd97b7b1909f796b2efee12f6972c26f18137490f1771a0742107ef2f20b9703e878ae771b8682e29ad5e1c6999c3d19fb349fde1495a9307c71a6771fcfb4cd29b6770a27d3a27ff4ee314ee9cfe379533bfdd38fb6b0a197f2673ae6d12e76b2672e1832b997513b8583b9e4b55e3b8fcce85acf763c9ae76e6ca97315c6d18cdb56f4e5cffea484ebd03373eda73f3b31db73e8de2f6de91dc89b7e5ee3e1bee258c2037763879bb8791bfc79a82382b0a932db97fd082a2c343293e34840789e694ec1f4ce901331e260de25198298fb70da42c7c00e5dbfbf324a41f4fb7f4e559a809cfb7f6a1629731953b7bf322a6172fa38d78b5a327af230c7913d583b791dd7977b91b55970ca8ced6e77d56573e5cd0a3e67c176a2fea5297a9c3c71b9da9cfe9c4a75bda7cbea945c3554dbe5cd1e0eb7575be5deb48e3b10e34a5a9d19caecaf7e32ab41c51a63545891fa98afc3caac0afb3f2fc3e2347db3959fe6448f97b5286f61312fe9d16c3291162890c525939e415141176414959a550b8120122518a301152915824150b4e90442c118bc22422754373a1924a448eeedec243487602ec05380870fc0f684f86da53525652023400000000001c000000000000000000000000000000000000000a000000140000000053525652023d000000000024010000000000000000000000000000000000000000000000000000000000000000000000535256520223000000000008000000000000000a",
+      "error": "snapshot_packed_size"
+    },
+    {
+      "id": "snapshot_packed_corrupt_compression",
+      "note": "Packed carriage still requires one exact complete zlib stream.",
+      "hex": "535256520221000000000026000000000000000a00000000000000170000000000000007000000040001000400000001010353525652023f000000000409000004d400000473789c1594675ccd011885efbdddf6a045492191ac241a285a246424abc8cc8a246516494a514aa2882832432823bba514ca28bba844a8941179fcfee7c3f39e73deef472c1224351228ef51a22d2b14ee209efa0fc9f47664a6fd453af90fb293da9073fb8dfc945f28ccfe89a2e70f94bc5a519ed382caccefa8ce6846cda3890eb31ae9e8f40d75c7af688cf982e6e806b4ec3ea33dea139d1ceae96cff119d0975e88eafa5cbc41af45c3fd075ec7bf49dab31185745379777740f784b8f356f305cfb9a9e81af30f27b49af552fe8ed5f89f1ea0afa043dc764d333fa6e7e4abfe027f45f5fce8075650cdcf818d30d8f18b4e821660b4b19bcb80473ef070c9957ccd0b945582cb88fe5fc42ac561460ed93cf30df3c86afcc65c4d27bd82cb98bedf23b8c5c769b51dab7b0d3ba897de71b3874cac151fd3a4e1daf315af32a6334aee0ac9fcdd8ae59b874bbcc38834b8cd7bdc8049d4c5cf52e30b1cb7926c99e63b2348329f26771933bc354f169dc45a798267392e99213cc504d67a6ca7166753886875a1a9e8aa9cc5638ca1ce5237829a53077e861e60d39c47ccb6416581c64a1d901160d4ac2db3c91c583f7b3c4661f4b4724b06ce45e96dbc6e363bd87155671ac1c1e8befb0ddacea15839f5134ab8d77e1df7b276b7a4411d03d92c09e3b586b18c1ba01e1acefbf9d0da6616c1cb88d4d26a104f5d94a70bf1036f7ddc296a79b097912ccd6e741843edbc4b6c71b097bb481ede5eb092f5b47c4ebb5ec781548e4db00a2deac6167a53fbb2a5613fdd28f9817abd89de74b6cee4ae20a56b027df87f83bcbd97b7b1909f796b2efee12f6972c26f18137490f1771a0742107ef2f20b9703e878ae771b8682e29ad5e1c6999c3d19fb349fde1495a9307c71a6771fcfb4cd29b6770a27d3a27ff4ee314ee9cfe379533bfdd38fb6b0a197f2673ae6d12e76b2672e1832b997513b8583b9e4b55e3b8fcce85acf763c9ae76e6ca97315c6d18cdb56f4e5cffea484ebd03373eda73f3b31db73e8de2f6de91dc89b7e5ee3e1bee258c2037763879bb8791bfc79a82382b0a932db97fd082a2c343293e34840789e694ec1f4ce901331e260de25198298fb70da42c7c00e5dbfbf324a41f4fb7f4e559a809cfb7f6a1629731953b7bf322a6172fa38d78b5a327af230c7913d583b791dd7977b91b55970ca8ced6e77d56573e5cd0a3e67c176a2fea5297a9c3c71b9da9cfe9c4a75bda7cbea945c3554dbe5cd1e0eb7575be5deb48e3b10e34a5a9d19caecaf7e32ab41c51a63545891fa98afc3caac0afb3f2fc3e2347db3959fe6448f97b5286f61312fe9d16c3291162890c525939e415141176414959a550b8120122518a301152915824150b4e90442c118bc22422754373a1924a448eeedec243487602ec05380870fc0f684f86db53525652023400000000001c000000000000000000000000000000000000000a000000140000000053525652023d000000000024010000000000000000000000000000000000000000000000000000000000000000000000535256520223000000000008000000000000000a",
+      "error": "snapshot_compression"
+    },
+    {
+      "id": "snapshot_packed_bad_row_mode",
+      "note": "Packed rows accept only explicit verbatim or runs carriage modes.",
+      "hex": "535256520221000000000026000000000000000a00000000000000170000000000000007000000040001000400000001010353525652023f000000000408000004d400000473780115946740cd0d1c85efbdddf612129a2a32a2128a541a1a3232b242a12233d95a4ac34c13992965ef9155a2100d33bb2864cfb4c7f3befff3e139bfdf39df8f5824486a2c50debb545356fcffe105e249ed48a6b42133b915e9f816643d9b919bd884fc8446146636a038a31e259f3a9467fd43655a2daa53ffa2e6fd07f5e9bfe930f2171ace3fe9e8fa834e2edfe9ecf00dcd115fe9e2f4052dc7cf741df3896ea36be83eee23da633fa0e3fe1e5db76af43caad01ff50e83956fe9b1a212c3d51518ad7a83f1b2d7f40c7a45afe52f31097e41efb0e7f4097d46df8872fa853fc574ed13faaf79cc80904798ad7b88b9ff032cfcca1838af14cb801206cd2e66b0ef7d86ccbd87d59c22ac17df65e8a23b0c5b7a1b9b25850c0f2cc076fe2dec16dec47e413e23346fe0d0390f47ad5c9cba5cc759e31a233b5cc5a5d3155c3b5ec64d3707779d4b8cd2bf8887de0546773bcf98aee718ab7d9671ddcfe0297b9af1d2534c903fc944b9134c121fc74b748cc93247992239c254d5c34c53c966ba7a16de6a8798a198c94c850c66291fc447291ddfc107983d683f73acf63177c85efc2cf6e06fbe9b00cb34e60ddcc57cdb9d040edfc102fb5416daa5b06868328bad93586293c8d2610904f5dcce32e378824db6b1bcd75656f4d8c24a83cdac32dac46ac38dace91fc75ad358d699c51032209ad03e1b08eb1d4578bf4822faae677d7904914fc3897a1ec68667a1443f0a21e6e13a629fac25eef11a3656ac66d39b556c7ebb922d952bd8fa7239db5e0413ff7a19db5f0591707b2989854b48babb98e43b8b48b9b990d4fc05ec280864e7adf9ec2a9d475a4900bb1ff8b3a7cc8fbdf7e6b2af680efb8b6773e0be2fe9753e1cfc378b8c869964d6cfe0d01f6fb27e4f27bb761a87ff4ee548db148eb64ee6185e1c6f9fc489a6899c6c9cc0a996f19c6ef6e4ccc7719cfd3096739fc670be663417aa3cb8f86e1497debb9353edc6e51fae5cf9eec2d55f23b9f6d399eb5f9cc8fdec48de37076e7c1d417eaa3d3753ecb8b5d396821dc3294cb4e176c230ee240fe56e923545fbacb8b77708f70f0ca678ff204ad22c29dd3590b23d163cd86dcec318331e450fe0715c7f9ec49af234b21fe5ebfbf26c431f9e47f5e6c536135e6eedc5abed3d791d6fcc9b4d46546c34a4724b0fde6e36e0dd457daa2ee8519da3cbfb4b3a7c38abcdc733dda939df8d4fe7baf239578b2fd7bbf0f58626dff23af3fd4a277e5ceec8cf6b1afcbada81df59eafc39a4c6dfc3aad466abf0efa03275e94ad4672ad290a140e349799a4ec8d17c5a969653525a8fcad0764442fb71311c132196c8209595435e411161179494558a0497081089d205978ac422a958180b4112b1442c8a9188340c2d85482a11397b050885f039087014e024c0f93f688e86db53525652023400000000001c000000000000000000000000000000000000000a000000140000000053525652023d000000000024010000000000000000000000000000000000000000000000000000000000000000000000535256520223000000000008000000000000000a",
+      "error": "snapshot_packed_row_mode"
+    },
+    {
+      "id": "snapshot_packed_run_overflow",
+      "note": "A packed attribute run cannot claim more cells than remain in the canonical row.",
+      "hex": "535256520221000000000026000000000000000a00000000000000170000000000000007000000040001000400000001010353525652023f00000000040a000004d40000047378011d94673cd50d0085efbdf648140991a429210a0d65a43d548a34642523a425492ada3bda51a19d9696282a348c545656434845a568e8e9fdbfe7c373cef99def472c12246d2850ce2d4f4346fc5f7006f18cbf4866b52335f30fd24ebf9199fa0bd9e93f919bd686fcdc5614e6fc4071fe7794e6b5a0ecfa8d0e2e5f5171fb42c7d9cda88e6e42cde1339dc67ca2b3e347d46d1bd118f5812ef60d68dad5d375521d5a13dfa33da5169dc9efe836ee2dba63dfa037e135ddc7d7a0bfac9a1e4bab30585149cfe5151886bca2577039bd43cbe8b3a494be1125f45b5d4cffc89718ad79c180b0e718af2c6260f8334c561562ea5d8099573e8316e661eef3148b054f18ecfe98219e8fb0f4c8c52a3007eb806c86063d64d8e2070c5f749f11be59d8f86732d2ef1ea334ee62ab9e819d663af65deee0a096c668d5db3876bec5984e3719ab7b8371ddae33be7b2a13f4ae3151eb2a93ba5e61b2ce65a6685f62aa4c0a4ed21799267781e9b2e799213e87b3e82c33a5ce304b721a970ea770554e6676c724dc541299a37092b9f22798a7749cf98a09b80f8e6781c5313c2c8fe239e4085e6687f1363d848ff941160e3a80ef88fd2c1a1e87dfc858fc6df61160bd9740ab3d2c1eb69ba0a1bb08eeb59310c31d2ce9b39dd0dedb58da632bcbf4b7b0bce76656186c62a5f146c206c4b0ca249af0811b58dd6f3d117dd7b1c6288ac8fe6b59fb3292a8176b585712c1fae2d56c78164e74e12a629e87b1b168259b2a57b0b962395baa97b1b56a29dbca42d95eba841daf42d8591eccae8741ec7eb0983d3981eccd0e605fa63fb1f7fc88bbbf88fd59be1cc85bc8c1a73e1c2af0e670be17471e797234d783634f1610ffd89d84eff339de328f13ad7339f9630e895fdc486a9e4df237574e7d75e174fb2ccefc99c9599c39f77706e77f4ee742db342efe7622e5d7542ed54ee1f2bbc95ca99bc4d5f713b9f67a02a935e3b9fe761c37de8ce5e6a731dcfae8c8eda6d1a47d76e04e833de9f5766434da72f7c328eec58e24739f0d59fb47703f6e380f760fe3e1aea164efb526678f15b9472d797464088fe307f3e498054f0f9a93776010f987cd2838644a61b409cf360ca468a331cf6306f022ca88976bfb53bcbe1f25ebfa52babd0f65db7a53beb317af761852b1b927959b0ca8dada83ea2dfad4a476e7f5353ddedcd0e5edf56ebcbbac43ed256dde5fd5a2ee4a57ead33569b8d3850f773568cc50e7e3adce7cbad989cf696a34dd56a539a9235f1255f87aaa03df92956939aec4f704457e9c54a0f5843c6d17e4f8795e965f2932fcbe28cd9f3352b49f96f0f79c18ce8a104ba4909691454e5e01e11714959473059708108912848b90168945326221099288256251b444a46660feff28113938fb0883d06c05d809b017e0f00f688686db53525652023400000000001c000000000000000000000000000000000000000a000000140000000053525652023d000000000024010000000000000000000000000000000000000000000000000000000000000000000000535256520223000000000008000000000000000a",
+      "error": "snapshot_packed_run_length"
+    },
+    {
+      "id": "reject_legacy_hwls_v10",
+      "note": "Deprecated HWLS cannot be mistaken for the Server envelope.",
+      "hex": "48574c530a01000000000000",
+      "error": "header_magic"
+    },
+    {
+      "id": "ready_zero_server_id",
+      "note": "Every accepted attachment identity/revision is nonzero.",
+      "hex": "53525652020c00000000002800000000000000000000000000000007000000000000000300000000000000020102030405060708",
+      "error": "attach_ready_identity"
+    },
+    {
+      "id": "ready_zero_session_id",
+      "note": "Every accepted attachment identity/revision is nonzero.",
+      "hex": "53525652020c000000000028000000000000005b0000000000000000000000000000000300000000000000020102030405060708",
+      "error": "attach_ready_identity"
+    },
+    {
+      "id": "ready_zero_instance_id",
+      "note": "Every accepted attachment identity/revision is nonzero.",
+      "hex": "53525652020c000000000028000000000000005b0000000000000007000000000000000000000000000000020102030405060708",
+      "error": "attach_ready_identity"
+    },
+    {
+      "id": "ready_zero_tree_revision",
+      "note": "Every accepted attachment identity/revision is nonzero.",
+      "hex": "53525652020c000000000028000000000000005b0000000000000007000000000000000300000000000000000102030405060708",
+      "error": "attach_ready_identity"
+    },
+    {
+      "id": "ready_zero_client_id",
+      "note": "Every accepted attachment identity/revision is nonzero.",
+      "hex": "53525652020c000000000028000000000000005b0000000000000007000000000000000300000000000000020000000000000000",
+      "error": "attach_ready_identity"
+    },
+    {
+      "id": "ready_wrong_size_24",
+      "note": "Attachment-ready admits exactly five u64 values.",
+      "hex": "53525652020c000000000018000000000000005b00000000000000070000000000000003",
+      "error": "attach_ready_size"
+    },
+    {
+      "id": "ready_wrong_size_39",
+      "note": "Attachment-ready admits exactly five u64 values.",
+      "hex": "53525652020c000000000027000000000000005b00000000000000070000000000000003000000000000000201020304050607",
+      "error": "attach_ready_size"
+    },
+    {
+      "id": "ready_wrong_size_41",
+      "note": "Attachment-ready admits exactly five u64 values.",
+      "hex": "53525652020c000000000029000000000000005b000000000000000700000000000000030000000000000002010203040506070800",
+      "error": "attach_ready_size"
+    }
+  ]
+}

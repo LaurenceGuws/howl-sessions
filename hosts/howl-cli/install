@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+workspace=$(cd -- "$root/../.." && pwd -P)
+mode=${1:---check}
+target=$HOME/.local/bin/howl
+state_dir=${XDG_STATE_HOME:-$HOME/.local/state}/howl
+receipt=$state_dir/cli-installed.sha256
+legacy_receipt=$state_dir/installed.sha256
+
+[[ $mode == --check || $mode == --promote ]] || {
+  echo 'usage: ./hosts/howl-cli/install --check|--promote' >&2
+  exit 2
+}
+[[ $# == 1 ]] || exit 2
+zig=$(command -v zig) || { echo 'howl CLI install: Fleet Zig is absent from PATH' >&2; exit 1; }
+[[ $($zig version) == $(<"$workspace/.zigversion") ]] || {
+  echo 'howl CLI install: Zig does not match workspace .zigversion' >&2
+  exit 1
+}
+
+if [[ $mode == --promote ]]; then
+  [[ $(git -C "$workspace" branch --show-current) == main ]] || {
+    echo 'howl CLI install: checkout is not on main' >&2
+    exit 1
+  }
+  [[ -z $(git -C "$workspace" status --porcelain=v1 --untracked-files=all) ]] || {
+    echo 'howl CLI install: checkout is dirty' >&2
+    exit 1
+  }
+  head=$(git -C "$workspace" rev-parse HEAD)
+  origin=$(git -C "$workspace" rev-parse origin/main 2>/dev/null) || {
+    echo 'howl CLI install: origin/main unavailable' >&2
+    exit 1
+  }
+  [[ $head == "$origin" ]] || {
+    echo 'howl CLI install: HEAD is not pushed to origin/main' >&2
+    exit 1
+  }
+fi
+
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/howl-cli-install.XXXXXX")
+trap 'rm -rf -- "$tmp"' EXIT HUP INT TERM
+(
+  cd "$root"
+  "$zig" build check
+  "$zig" build test
+  "$zig" build install -Doptimize=ReleaseSmall --prefix "$tmp/prefix"
+)
+candidate=$tmp/prefix/bin/howl
+[[ -x $candidate && ! -L $candidate ]] || {
+  echo 'howl CLI install: candidate binary is absent' >&2
+  exit 1
+}
+candidate_identity=$($candidate version)
+identity_prefix='{"schema":"howl.version/v1","name":"howl","version":"'
+identity_suffix='"}'
+[[ $candidate_identity == "$identity_prefix"*"$identity_suffix" ]] || {
+  echo 'howl CLI install: candidate identity mismatch' >&2
+  exit 1
+}
+candidate_version=${candidate_identity#"$identity_prefix"}
+candidate_version=${candidate_version%"$identity_suffix"}
+[[ -n $candidate_version && $candidate_version != *'"'* && $candidate_version != *'\'* ]] || {
+  echo 'howl CLI install: candidate version is invalid' >&2
+  exit 1
+}
+
+if [[ $mode == --check ]]; then
+  echo 'howl CLI install: candidate ready'
+  exit 0
+fi
+
+sha() { sha256sum -- "$1" | awk '{print $1}'; }
+recorded_sha() {
+  local path=$1
+  [[ -f $path ]] || return 0
+  awk '$2 == "howl" { print $1; exit }' "$path"
+}
+
+mkdir -p -- "$HOME/.local/bin" "$state_dir"
+candidate_sha=$(sha "$candidate")
+if [[ -e $target || -L $target ]]; then
+  [[ -f $target && ! -L $target ]] || {
+    echo "howl CLI install: refusing unexpected install target: $target" >&2
+    exit 1
+  }
+  installed_sha=$(sha "$target")
+  current_prior=$(recorded_sha "$receipt")
+  legacy_prior=$(recorded_sha "$legacy_receipt")
+  [[ $installed_sha == "$candidate_sha" ||
+     ( -n $current_prior && $installed_sha == "$current_prior" ) ||
+     ( -z $current_prior && -n $legacy_prior && $installed_sha == "$legacy_prior" ) ]] || {
+    echo "howl CLI install: refusing unowned or locally changed binary: $target" >&2
+    exit 1
+  }
+fi
+
+stage=$(mktemp "$HOME/.local/bin/.howl.XXXXXX")
+receipt_tmp=$(mktemp "$state_dir/.cli-installed.XXXXXX")
+trap 'rm -rf -- "$tmp"; rm -f -- "$stage" "$receipt_tmp"' EXIT HUP INT TERM
+install -m 0755 -- "$candidate" "$stage"
+mv -fT -- "$stage" "$target"
+printf '%s howl\n' "$candidate_sha" >"$receipt_tmp"
+chmod 0600 "$receipt_tmp"
+mv -fT -- "$receipt_tmp" "$receipt"
+[[ ! -L $target && -x $target && $(sha "$target") == "$candidate_sha" ]] || {
+  echo 'howl CLI install: installed binary verification failed' >&2
+  exit 1
+}
+[[ $($target version) == "$candidate_identity" ]] || {
+  echo 'howl CLI install: installed identity verification failed' >&2
+  exit 1
+}
+printf 'howl CLI install: %s\n' "$target"

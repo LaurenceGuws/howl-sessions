@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "version": "0.1.0-dev",
+  "zig": "0.17.0",
+  "source": {
+    "howl": "73c529b7e356f27e709e44e05928bb44ca2bcb2e"
+  },
+  "packages": {
+    "mods/server": "0.1.7-dev",
+    "hosts/howl-cli": "0.1.6-dev"
+  },
+  "status": "development-bridge"
+}
