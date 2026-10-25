@@ -29,22 +29,25 @@ printf 'include_dir=%s\nsys_include_dir=%s\ncrt_dir=%s\ncc_dir=%s\nmsvc_lib_dir=
   "$sysroot/usr/lib/aarch64-linux-android/24" \
   >"$work/libc.txt"
 
-(cd "$workspace/mods/server-client" && zig build install \
+(cd "$workspace/mods/server-client-render" && zig build install \
   -Dtarget=aarch64-linux-android.24 \
   -Doptimize=ReleaseFast \
-  -Dshared-abi=true \
+  -Dbundled_text=true \
   --libc "$work/libc.txt" \
   -p "$work/install")
 
-library="$work/install/lib/libhowl_server_client.so"
+library="$work/install/lib/libhowl_sessions_native.so"
 if [[ ! -f "$library" ]]; then
-  echo "Server client shared ABI not produced: $library" >&2
+  echo "Composed Client/Render shared ABI not produced: $library" >&2
   exit 1
 fi
 dest="$host/native/android/arm64-v8a"
 mkdir -p "$dest"
-install -m 0644 "$library" "$dest/libhowl_server_client.so"
-"$toolchain/bin/llvm-readelf" -h "$dest/libhowl_server_client.so" | grep 'AArch64'
-"$toolchain/bin/llvm-nm" -D --defined-only "$dest/libhowl_server_client.so" | grep ' hsc_control_tree$'
-sha256sum "$dest/libhowl_server_client.so"
-echo 'HOWL_SESSIONS_ANDROID_CLIENT_OK'
+install -m 0644 "$library" "$dest/libhowl_sessions_native.so"
+# The old generated client-only artifact must not enter this product APK.
+rm -f "$dest/libhowl_server_client.so"
+"$toolchain/bin/llvm-readelf" -h "$dest/libhowl_sessions_native.so" | grep 'AArch64'
+"$toolchain/bin/llvm-nm" -D --defined-only "$dest/libhowl_sessions_native.so" | grep ' hsc_control_tree$'
+"$toolchain/bin/llvm-nm" -D --defined-only "$dest/libhowl_sessions_native.so" | grep ' hsr_capture$'
+sha256sum "$dest/libhowl_sessions_native.so"
+echo 'HOWL_SESSIONS_ANDROID_NATIVE_OK'

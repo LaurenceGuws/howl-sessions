@@ -97,8 +97,9 @@ lifecycle, PTY/VT semantics, stale coordinate policy, UI, and rendering remain
 outside that transport-neutral client.
 
 
-The optional `server_client_render` adapter consumes these transported views through
-canonical howl-render. Desktop Local ownership belongs to the consuming host.
+The independently versioned Server Client Render package consumes these
+transported views through canonical Howl Render. Desktop Local ownership
+belongs to the consuming host.
 
 
 ## Optional native C ABI

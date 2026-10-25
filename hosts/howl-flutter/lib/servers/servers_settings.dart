@@ -112,53 +112,50 @@ Future<ConfiguredServer?> _serverEditor(
   BuildContext context,
   ConfiguredServer? existing,
 ) async {
-  final name = TextEditingController(text: existing?.name ?? '');
-  final endpoint = TextEditingController(text: existing?.endpoint ?? '');
-  try {
-    return await showDialog<ConfiguredServer>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(existing == null ? 'Add server' : 'Edit server'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: name,
-              autofocus: true,
-              maxLength: 64,
-              decoration: const InputDecoration(labelText: 'Name'),
-            ),
-            TextField(
-              controller: endpoint,
-              decoration: const InputDecoration(
-                labelText: 'Endpoint',
-                hintText: 'tcp://127.0.0.1:43150',
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+  var name = existing?.name ?? '';
+  var endpoint = existing?.endpoint ?? '';
+  return showDialog<ConfiguredServer>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(existing == null ? 'Add server' : 'Edit server'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextFormField(
+            initialValue: name,
+            onChanged: (value) => name = value,
+            autofocus: true,
+            maxLength: 64,
+            decoration: const InputDecoration(labelText: 'Name'),
           ),
-          FilledButton(
-            onPressed: () {
-              final label = name.text.trim();
-              final address = endpoint.text.trim();
-              if (label.isEmpty || address.isEmpty) return;
-              Navigator.pop(
-                context,
-                ConfiguredServer(name: label, endpoint: address),
-              );
-            },
-            child: const Text('Save'),
+          TextFormField(
+            initialValue: endpoint,
+            onChanged: (value) => endpoint = value,
+            decoration: const InputDecoration(
+              labelText: 'Endpoint',
+              hintText: 'tcp://127.0.0.1:43150',
+            ),
           ),
         ],
       ),
-    );
-  } finally {
-    name.dispose();
-    endpoint.dispose();
-  }
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final label = name.trim();
+            final address = endpoint.trim();
+            if (label.isEmpty || address.isEmpty) return;
+            Navigator.pop(
+              context,
+              ConfiguredServer(name: label, endpoint: address),
+            );
+          },
+          child: const Text('Save'),
+        ),
+      ],
+    ),
+  );
 }

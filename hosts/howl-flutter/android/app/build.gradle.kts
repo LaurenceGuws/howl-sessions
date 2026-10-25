@@ -60,12 +60,12 @@ android {
     }
 }
 
-val howlServerClient = file("../../native/android/arm64-v8a/libhowl_server_client.so")
+val howlServerClient = file("../../native/android/arm64-v8a/libhowl_sessions_native.so")
 
 tasks.register("verifyHowlServerClient") {
     doLast {
         check(howlServerClient.isFile) {
-            "missing versioned native Server client; build it with hosts/howl-flutter/native/build-android.sh"
+            "missing composed native Client/Render; build it with hosts/howl-flutter/native/build-android.sh"
         }
     }
 }

@@ -2,11 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:howl_server_client/howl_server_client.dart';
+import 'package:howl_server_client_render/howl_server_client_render.dart';
 
+import 'render_surface.dart';
 import 'terminal_input_bar.dart';
+import 'terminal_fonts.dart';
 
-/// One retained, cancellable Instance observer. The text projection is only
-/// diagnostic until a proper terminal cell renderer consumes the native facts.
+/// One retained, cancellable Instance observer and canonical Render Canvas.
 final class InstanceView extends StatefulWidget {
   const InstanceView({
     super.key,
@@ -28,8 +30,9 @@ final class InstanceView extends StatefulWidget {
 }
 
 final class _InstanceViewState extends State<InstanceView> {
-  TerminalTextObserver? _observer;
-  TerminalTextSnapshot? _frame;
+  RenderObserver? _observer;
+  RenderFrame? _frame;
+  RenderTextures? _textures;
   String? _failure;
   bool _connecting = false;
   int _generation = 0;
@@ -43,23 +46,30 @@ final class _InstanceViewState extends State<InstanceView> {
   Future<void> _follow() async {
     final generation = ++_generation;
     final previous = _observer;
+    final previousTextures = _textures;
     _observer = null;
+    _textures = null;
     setState(() {
       _frame = null;
       _failure = null;
       _connecting = true;
     });
-    if (previous != null) {
-      try {
+    try {
+      if (previous != null) {
         await previous.close();
-      } catch (error) {
-        if (mounted && generation == _generation) {
-          setState(() {
-            _connecting = false;
-            _failure = 'Previous observation teardown: $error';
-          });
-        }
-        return;
+      }
+    } catch (error) {
+      if (mounted && generation == _generation) {
+        setState(() {
+          _connecting = false;
+          _failure = 'Previous observation teardown: $error';
+        });
+      }
+      return;
+    } finally {
+      if (previousTextures != null) {
+        await WidgetsBinding.instance.endOfFrame;
+        previousTextures.close();
       }
     }
 
@@ -79,25 +89,34 @@ final class _InstanceViewState extends State<InstanceView> {
       return;
     }
 
-    TerminalTextObserver? observer;
+    RenderObserver? observer;
+    RenderTextures? textures;
     try {
-      observer = await const ServerClient().followText(
+      final fonts = await terminalFonts();
+      observer = await RenderObserver.start(
         endpoint,
         serverId,
         session.id,
         instance.id,
+        fontPath: fonts.$1,
+        fallbackPaths: fonts.$2,
       );
       if (!mounted || generation != _generation) return;
+      textures = RenderTextures();
       _observer = observer;
+      _textures = textures;
       while (mounted && generation == _generation) {
-        final frame = await observer.next();
+        final frame = await observer.next(resident: textures.resident);
+        if (!mounted || generation != _generation) break;
+        await textures.apply(frame);
         if (!mounted || generation != _generation) break;
         setState(() {
           _frame = frame;
           _connecting = false;
         });
-        // Pull one next cut only after painting the previous one.
+        // Only the finished canvas frame establishes backend residency.
         await WidgetsBinding.instance.endOfFrame;
+        textures.finishFrame();
       }
     } catch (error) {
       if (mounted && generation == _generation) {
@@ -117,6 +136,8 @@ final class _InstanceViewState extends State<InstanceView> {
         }
       }
       if (identical(_observer, observer)) _observer = null;
+      if (identical(_textures, textures)) _textures = null;
+      textures?.close();
     }
   }
 
@@ -124,6 +145,7 @@ final class _InstanceViewState extends State<InstanceView> {
   void dispose() {
     _generation++;
     final observer = _observer;
+    _textures?.close();
     if (observer != null) {
       unawaited(
         observer.close().catchError((Object error) {
@@ -164,11 +186,7 @@ final class _InstanceViewState extends State<InstanceView> {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           child: Row(
             children: [
-              const Expanded(
-                child: Text(
-                  'Live text · input below, without terminal styling',
-                ),
-              ),
+              const Expanded(child: Text('Native Canvas · input below')),
               IconButton(
                 tooltip: 'Reconnect terminal observation',
                 icon: const Icon(Icons.refresh),
@@ -188,30 +206,20 @@ final class _InstanceViewState extends State<InstanceView> {
                         : 'No terminal observation',
                   ),
                 )
-              : Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: SingleChildScrollView(
-                      child: SelectableText(
-                        _frame!.lines.join('\n'),
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 13,
-                          height: 1.15,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
+              : _textures == null
+              ? const Center(child: Text('Native Canvas unavailable'))
+              : RenderCanvas(frame: _frame!, textures: _textures!),
         ),
         if (widget.endpoint != null && widget.serverId != null)
-          TerminalInputBar(
-            endpoint: widget.endpoint!,
-            serverId: widget.serverId!,
-            sessionId: session.id,
-            instanceId: instance.id,
-            running: instance.running,
+          SafeArea(
+            top: false,
+            child: TerminalInputBar(
+              endpoint: widget.endpoint!,
+              serverId: widget.serverId!,
+              sessionId: session.id,
+              instanceId: instance.id,
+              running: instance.running,
+            ),
           ),
       ],
     );

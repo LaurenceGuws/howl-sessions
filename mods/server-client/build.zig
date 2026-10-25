@@ -4,7 +4,6 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const bundled = b.option(bool, "bundled_render_text", "Build the client render adapter with bundled howl-text") orelse false;
     const shared_abi = b.option(bool, "shared-abi", "Install the client C ABI as a shared library for dynamic hosts") orelse false;
     const windows = target.result.os.tag == .windows;
     const protocol = b.dependency("server_protocol", .{ .target = target, .optimize = optimize }).module("server_protocol");
@@ -33,7 +32,8 @@ pub fn build(b: *std.Build) void {
     });
     terminal_owner.addImport("server_protocol", protocol);
     terminal_owner.addImport("client_transport", transport);
-    const terminal = b.createModule(.{
+    // The independently versioned Render adapter consumes this exact client.
+    const terminal = b.addModule("terminal_client", .{
         .root_source_file = b.path("src/client/terminal/root.zig"),
         .target = target,
         .optimize = optimize,
@@ -77,7 +77,9 @@ pub fn build(b: *std.Build) void {
     native.addImport("howl_vt_codec", codec);
     native.addImport("native_abi_types", native_types);
     native.addImport("terminal_owner", terminal_owner);
-    const abi_root = b.createModule(.{
+    // Exact-composition hosts can link this source into one native library.
+    // Opaque snapshots must never move between independent library instances.
+    const abi_root = b.addModule("server_client_abi", .{
         .root_source_file = b.path("src/client/abi.zig"),
         .target = target,
         .optimize = optimize,
@@ -92,29 +94,6 @@ pub fn build(b: *std.Build) void {
     abi.installHeader(vt.namedLazyPath("howl_vt_native_header"), "howl_vt_native.h");
     b.installArtifact(abi);
 
-    const render = b.dependency("howl_render", .{ .target = target, .optimize = optimize, .bundled_text = bundled });
-    // Forward exactly Render's ABI types, not a duplicate view of them.
-    // zig-audit: acknowledge panic
-    // reason: A build graph cannot recover from allocation failure while forwarding a module.
-    b.modules.put(b.allocator, "server_client_render_native", render.module("howl_render_native")) catch @panic("OOM");
-    const text = b.dependency("howl_text", .{ .target = target, .optimize = optimize, .bundled = bundled });
-    const adapter = b.addModule("server_client_render", .{
-        .root_source_file = b.path("src/client/terminal/render.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    adapter.addImport("terminal_client", terminal);
-    adapter.addImport("howl_render", render.module("howl_render"));
-
-    const render_tests = b.createModule(.{
-        .root_source_file = b.path("test/render.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    render_tests.addImport("terminal_client", terminal);
-    render_tests.addImport("server_client_render", adapter);
-    render_tests.addImport("howl_vt", vt.module("howl_vt"));
-    render_tests.addImport("test_fonts", text.module("howl_text_test_fonts"));
     const boundary = b.createModule(.{
         .root_source_file = b.path("test/client_boundary.zig"),
         .target = target,
@@ -137,11 +116,10 @@ pub fn build(b: *std.Build) void {
     audit.dependOn(&zig_audit.step);
     check.dependOn(audit);
     check.dependOn(&abi.step);
-    const tests = b.step("test", "Run client, byte, native, render and transport proofs");
+    const tests = b.step("test", "Run client, byte, native and transport proofs");
     inline for (.{
         .{ "server-client-boundary", boundary },
         .{ "server-terminal-client", terminal },
-        .{ "server-client-render", render_tests },
         .{ "server-client-transport", transport },
         .{ "server-client-byte", byte_tests },
         .{ "server-client-native-semantics", native },

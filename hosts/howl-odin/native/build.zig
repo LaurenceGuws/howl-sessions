@@ -6,7 +6,11 @@ pub fn build(b: *std.Build) void {
     const client_dependency = b.dependency("server_client", .{
         .target = target,
         .optimize = optimize,
-        .bundled_render_text = target.result.os.tag != .linux,
+    });
+    const render_adapter = b.dependency("server_client_render", .{
+        .target = target,
+        .optimize = optimize,
+        .bundled_text = target.result.os.tag != .linux,
     });
     const root = b.createModule(.{
         .root_source_file = b.path("bridge.zig"),
@@ -15,7 +19,7 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
         .pic = true,
     });
-    root.addImport("server_client_render", client_dependency.module("server_client_render"));
+    root.addImport("server_client_render", render_adapter.module("server_client_render"));
     const instance_dependency = b.dependency("howl_instance", .{
         .target = target,
         .optimize = optimize,

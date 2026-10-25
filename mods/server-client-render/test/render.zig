@@ -4,6 +4,7 @@ const std = @import("std");
 const client = @import("terminal_client");
 const fonts = @import("test_fonts");
 const terminal = @import("server_client_render");
+const native = @import("server_client_render_native");
 const text = terminal.text;
 const generated = text.generated;
 
@@ -271,6 +272,92 @@ fn firstRgba(commands: []const terminal.Command) ?@FieldType(terminal.Command, "
 fn constructTerminalrenderer(allocator: std.mem.Allocator, font: *text.FontSet) !void {
     const owner = try terminal.initPrivate(allocator, terminal.FontFaces.single(font), rendererConfig(64));
     terminal.deinit(owner);
+}
+
+test "native Render frame retains exact commands after Client snapshot release" {
+    var scalar = [_]u32{'A'};
+    var cells = [_]client.rich.Cell{cell(&scalar, 1, 0)};
+    var rows = [_]client.rich.Row{.{ .wrapped = false, .line_geometry = 0, .cells = &cells }};
+    const source = sourceSnapshot(&rows, 1);
+    const view = try client.view.project(std.testing.allocator, &source);
+
+    const owner = try native.create(std.testing.allocator, fonts.primary_font, &.{}, 16);
+    try std.testing.expectEqual(@as(usize, 128), owner.commands.len);
+    try std.testing.expectEqual(@as(usize, 1024 * 1024), owner.pixels.len);
+    const first = try native.capture(owner, view, &.{});
+    client.view.deinit(view);
+
+    try std.testing.expectError(error.Busy, native.destroy(owner));
+    const frame = native.read(first);
+    try std.testing.expect(frame.info.command_count > 0);
+    try std.testing.expect(frame.info.upload_count > 0);
+    try std.testing.expect(frame.info.cell_width > 0);
+    try std.testing.expect(frame.info.cell_height > 0);
+    try std.testing.expect(frame.uploads[0].pixels != null);
+    try std.testing.expect(frame.uploads[0].pixel_len > 0);
+    var has_ink = false;
+    for (frame.uploads[0].pixels[0..frame.uploads[0].pixel_len]) |pixel| {
+        if (pixel != 0) has_ink = true;
+    }
+    try std.testing.expect(has_ink);
+    var alpha_count: usize = 0;
+    for (frame.commands[0..frame.info.command_count]) |command| {
+        if (command.tag == native.c.HRC_ALPHA_MASK) alpha_count += 1;
+    }
+    try std.testing.expect(alpha_count > 0);
+    native.release(first);
+    try native.destroy(owner);
+}
+
+test "native renderer refuses unbound images without opening a frame" {
+    var scalar = [_]u32{'A'};
+    var cells = [_]client.rich.Cell{cell(&scalar, 1, 0)};
+    var rows = [_]client.rich.Row{.{ .wrapped = false, .line_geometry = 0, .cells = &cells }};
+    var images = [_]client.view.Image{.{ .image_id = 7, .generation = 9, .width = 1, .height = 1 }};
+    var placements = [_]client.view.ImagePlacement{.{
+        .image_id = 7,
+        .generation = 9,
+        .row = 0,
+        .column = 0,
+        .source_x = 0,
+        .source_y = 0,
+        .source_width = 1,
+        .source_height = 1,
+        .cell_x = 0,
+        .cell_y = 0,
+        .pixel_width = 10,
+        .pixel_height = 20,
+        .z = 0,
+    }};
+    var with_image = sourceSnapshot(&rows, 1);
+    with_image.graphics = .{
+        .generation = 1,
+        .content_generation = 1,
+        .cell_pixel_width = 10,
+        .cell_pixel_height = 20,
+        .images = &images,
+        .placements = &placements,
+    };
+    const rejected = try client.view.project(std.testing.allocator, &with_image);
+    defer client.view.deinit(rejected);
+    const owner = try native.create(std.testing.allocator, fonts.primary_font, &.{}, 16);
+    try std.testing.expectError(error.UnsupportedImages, native.capture(owner, rejected, &.{}));
+
+    const plain = sourceSnapshot(&rows, 1);
+    const accepted = try client.view.project(std.testing.allocator, &plain);
+    defer client.view.deinit(accepted);
+    const invalid = [_]native.c.hrc_residency{.{
+        .resource = 1,
+        .generation = 0,
+        .width = 10,
+        .height = 20,
+        .format = native.c.HRC_ALPHA8,
+        ._reserved = @splat(0),
+    }};
+    try std.testing.expectError(error.InvalidArgument, native.capture(owner, accepted, &invalid));
+    const rendered = try native.capture(owner, accepted, &.{});
+    native.release(rendered);
+    try native.destroy(owner);
 }
 
 test "two terminal renderers borrow one externally serialized process store" {

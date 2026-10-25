@@ -13,7 +13,7 @@ esac
 (cd "$host" && flutter pub get && flutter build apk "--$mode" --target-platform android-arm64 "$@")
 apk="$host/build/app/outputs/flutter-apk/app-$mode.apk"
 test -f "$apk"
-unzip -Z1 "$apk" | grep -Fx 'lib/arm64-v8a/libhowl_server_client.so'
+unzip -Z1 "$apk" | grep -Fx 'lib/arm64-v8a/libhowl_sessions_native.so'
 abis=$(unzip -Z1 "$apk" | sed -n 's#^lib/\([^/]*\)/.*#\1#p' | sort -u)
 if [[ "$abis" != arm64-v8a ]]; then
   printf 'unexpected Android ABIs:\n%s\n' "$abis" >&2

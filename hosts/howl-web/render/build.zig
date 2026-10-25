@@ -11,7 +11,11 @@ pub fn build(b: *std.Build) void {
     const client = b.dependency("server_client", .{
         .target = target,
         .optimize = optimize,
-        .bundled_render_text = true,
+    });
+    const render_adapter = b.dependency("server_client_render", .{
+        .target = target,
+        .optimize = optimize,
+        .bundled_text = true,
     });
     const wire_owner = b.dependency("server_protocol", .{ .target = target, .optimize = optimize });
     const vectors = wire_owner.namedLazyPath("server_protocol_vectors");
@@ -30,7 +34,7 @@ pub fn build(b: *std.Build) void {
         .strip = true,
     });
     root.addImport("server_client", client_module);
-    root.addImport("server_client_render", client.module("server_client_render"));
+    root.addImport("server_client_render", render_adapter.module("server_client_render"));
     root.export_symbol_names = &.{
         "font_ptr",   "font_capacity", "run",       "report_ptr", "report_len",
         "pixels_ptr", "pixels_len",    "error_ptr", "error_len",
@@ -64,8 +68,8 @@ pub fn build(b: *std.Build) void {
         .strip = true,
     });
     live_root.addImport("server_client", client_module);
-    live_root.addImport("server_client_render", client.module("server_client_render"));
-    live_root.addImport("howl_render_native", client.module("server_client_render_native"));
+    live_root.addImport("server_client_render", render_adapter.module("server_client_render"));
+    live_root.addImport("howl_render_native", render_adapter.module("server_client_render_native"));
     live_root.export_symbol_names = &.{
         "rv_font_ptr",               "rv_font_capacity",            "rv_fallback_font_ptr",
         "rv_fallback_font_capacity", "rv_symbol_font_ptr",          "rv_symbol_font_capacity",

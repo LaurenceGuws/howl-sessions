@@ -1,10 +1,11 @@
 .{
     .name = .howl_web_render,
-    .version = "0.1.7-dev",
+    .version = "0.1.8-dev",
     .fingerprint = 0xe1189fb0b1fd9b10,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .server_client = .{ .path = "../../../mods/server-client" },
+        .server_client_render = .{ .path = "../../../mods/server-client-render" },
         .server_protocol = .{ .path = "../../../mods/server-protocol" },
         .howl_web_text = .{ .path = "../text" },
         .howl_render = .{

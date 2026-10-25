@@ -12,20 +12,26 @@ boundaries are established.
 - `servers/` owns local named endpoint preferences and their Settings CRUD.
 - `sessions/` shows the selected Server's Session/Instance tree, with Session
   and Instance create/close. The add action for Sessions lives on that pane.
-- `instances/` owns a live text view and **explicit line input** to one
-  Instance. Two independently attached native clients have different jobs:
-  one long-polls for row-delta observations while the other sends UTF-8 input.
-  Each has one isolate and at most one outstanding operation. The host requests
-  its next observation only after painting the previous frame. Dispose/reconnect
-  cancels blocked I/O and joins the worker before freeing native interruption
-  memory. The host does not own framing, decoding or snapshot memory. Shell-line
-  submission adds Enter; full terminal key handling, VT cell painting, styles,
-  graphics and geometry are **not yet implemented** in Flutter.
+- `instances/` owns a native Render Canvas and **explicit line input** to one
+  Instance. Separate Instance attachments isolate rendering observation from
+  input. The observer borrows a native snapshot, copies canonical Render frame
+  commands and pixels on its worker, then releases both native borrows before
+  posting the frame to Flutter. The Canvas decodes uploads, reports actual
+  resident textures on its next pull, and retires removed images after a frame
+  is painted. Blocked observation is cancelled and joined before the native
+  interrupt is freed. Shell-line submission adds Enter; full terminal key
+  handling, terminal geometry selection and graphics fetching remain pending.
+- Android's canary font uses the device's verified DroidSansMono file with
+  available Arabic/CJK fallbacks. The app does not yet bundle its own font.
+  iOS font provisioning and native linking remain separate work.
 - `mods/server-client/bindings/dart` owns all C struct layouts, framing via
   the native library, exact unsigned 64-bit identities and handle cleanup.
   Each management operation runs off the UI isolate. Each retained attachment
   borrows a separately owned native interrupt whose only cross-isolate call is
   its documented synchronous cancellation. Tokens outlive worker exit.
+- `mods/server-client-render/bindings/dart` owns the versioned Render native
+  frame records and a separate observing worker. The Flutter host owns image
+  decoding, drawing, and backend texture residency, never a second cell grid.
 
 ## Checks and platform build
 
@@ -44,10 +50,16 @@ IDs to native two's-complement bit patterns before FFI calls.
 
 Home builds Android, not Note10. Set `ANDROID_NDK_ROOT` to a usable Android NDK
 with API 24 files, then run `./build-android.sh debug`. The script builds the
-versioned Server client shared ABI for Android arm64 with the pinned Zig,
-packages it in the APK, and verifies the library exists. Generated binaries
+composed Server Client + Render shared ABI for Android arm64 with the pinned Zig,
+packages only `libhowl_sessions_native.so` in the APK, and verifies both
+Client and Render exports. Generated binaries
 stay ignored under `native/android` and `build/`. Installation and test-server
 selection are separate attended canaries.
+
+The composed Flutter Canvas builds, analyzes and passes widget/resource tests.
+That is a source/build qualification, not yet a live Android Canvas pass.
+Native graphics manifests are currently rejected explicitly; a full image
+fetch/refill lane is not silently substituted.
 
 The Linux runner scaffold exists but Home currently lacks Ninja; there is
 no validated Linux desktop bundle yet. iOS host

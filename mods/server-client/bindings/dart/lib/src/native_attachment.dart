@@ -224,7 +224,8 @@ typedef _ResizeDart = int Function(Pointer<Void>, int, int, int);
 
 /// Exact attachment ABI from howl_server_client.h v1, not a host-owned wire.
 final class _AttachmentAbi {
-  _AttachmentAbi() : this._(openServerClientLibrary());
+  _AttachmentAbi({String? libraryPath})
+    : this._(openServerClientLibrary(libraryPath));
 
   _AttachmentAbi._(DynamicLibrary library)
     : createInterrupt = library
@@ -319,8 +320,8 @@ final class NativeTerminalInterrupt {
   final Pointer<Pointer<Void>> _slot;
   bool _released = false;
 
-  static NativeTerminalInterrupt create() {
-    final abi = _AttachmentAbi();
+  static NativeTerminalInterrupt create({String? libraryPath}) {
+    final abi = _AttachmentAbi(libraryPath: libraryPath);
     final slot = calloc<Pointer<Void>>();
     try {
       _check('interrupt create', abi.createInterrupt(_abiVersion, slot));
@@ -370,8 +371,9 @@ final class NativeTerminalAttachment {
     BigInt sessionId,
     BigInt instanceId, {
     int? interruptAddress,
+    String? libraryPath,
   }) {
-    final abi = _AttachmentAbi();
+    final abi = _AttachmentAbi(libraryPath: libraryPath);
     final addressBytes = utf8.encode(endpoint);
     final address = calloc<Uint8>(addressBytes.length);
     final attachment = calloc<Pointer<Void>>();
@@ -427,18 +429,20 @@ final class NativeTerminalAttachment {
     }
   }
 
-  TerminalTextSnapshot observe({BigInt? afterRevision, int historyOffset = 0}) {
+  /// Borrows one immutable native snapshot only for the synchronous callback.
+  /// The callback must copy all retained records before returning. Both the
+  /// attachment and any native consumer must use the SAME shared library.
+  T observeWith<T>(
+    T Function(Pointer<Void> snapshot, BigInt deliveryRevision) copy, {
+    BigInt? afterRevision,
+    int historyOffset = 0,
+  }) {
     if (_released) throw StateError('Attachment already released');
     if (historyOffset < 0 || historyOffset > 0xffffffff) {
       throw RangeError.range(historyOffset, 0, 0xffffffff, 'historyOffset');
     }
-    final snapshot = calloc<Pointer<Void>>();
+    final slot = calloc<Pointer<Void>>();
     final metadata = calloc<_Metadata>();
-    final row = calloc<_Row>();
-    final scalarPointer = calloc<Pointer<Uint32>>();
-    final scalarCount = calloc<IntPtr>();
-    final written = calloc<IntPtr>();
-    Pointer<_Cell>? cells;
     try {
       final after = afterRevision == null || afterRevision == BigInt.zero
           ? 0
@@ -446,84 +450,110 @@ final class NativeTerminalAttachment {
       _check(
         'observe',
         _cache == null
-            ? _abi.observe(_slot.value, after, historyOffset, snapshot)
+            ? _abi.observe(_slot.value, after, historyOffset, slot)
             : _abi.observeCached(
                 _slot.value,
                 _cache!.value,
                 after,
                 historyOffset,
-                snapshot,
+                slot,
               ),
       );
-      _check('snapshot metadata', _abi.metadata(snapshot.value, metadata));
-      _check(
-        'snapshot scalars',
-        _abi.scalars(snapshot.value, scalarPointer, scalarCount),
-      );
-      if (scalarCount.value != metadata.ref.scalarCount) {
-        throw const FormatException(
-          'Snapshot scalar count differs from metadata',
-        );
-      }
-      final scalars = scalarCount.value == 0
-          ? const <int>[]
-          : scalarPointer.value.asTypedList(scalarCount.value);
-      cells = calloc<_Cell>(metadata.ref.cellCount);
-      _check(
-        'snapshot cells',
-        _abi.cells(snapshot.value, 0, cells, metadata.ref.cellCount, written),
-      );
-      if (written.value != metadata.ref.cellCount) {
-        throw const FormatException('Incomplete snapshot cell copy');
-      }
-      final lines = <String>[];
-      for (var index = 0; index < metadata.ref.rowCount; index++) {
-        _check('snapshot row', _abi.row(snapshot.value, index, row));
-        final start = row.ref.cellOffset;
-        final end = start + row.ref.cellCount;
-        if (end > metadata.ref.cellCount) {
-          throw const FormatException('Snapshot row exceeds cells');
-        }
-        final text = StringBuffer();
-        for (var cellIndex = start; cellIndex < end; cellIndex++) {
-          final cell = (cells + cellIndex).ref;
-          if (cell.scalarCount == 0) {
-            if (cell.x == 0 && cell.y == 0) text.write(' ');
-            continue;
-          }
-          final scalarEnd = cell.scalarOffset + cell.scalarCount;
-          if (scalarEnd > scalars.length) {
-            throw const FormatException('Snapshot cell exceeds scalars');
-          }
-          text.write(
-            String.fromCharCodes(scalars.sublist(cell.scalarOffset, scalarEnd)),
-          );
-        }
-        lines.add(text.toString());
-      }
-      return TerminalTextSnapshot(
-        serverId: _ready.serverId,
-        sessionId: _ready.sessionId,
-        instanceId: _ready.instanceId,
-        clientId: _ready.clientId,
-        deliveryRevision: fromNativeIdentity(metadata.ref.deliveryRevision),
-        terminalRevision: fromNativeIdentity(metadata.ref.terminalRevision),
-        rows: metadata.ref.rows,
-        columns: metadata.ref.columns,
-        cursorRow: metadata.ref.cursorRow,
-        cursorColumn: metadata.ref.cursorColumn,
-        lines: List.unmodifiable(lines),
+      _check('snapshot metadata', _abi.metadata(slot.value, metadata));
+      return copy(
+        slot.value,
+        fromNativeIdentity(metadata.ref.deliveryRevision),
       );
     } finally {
-      if (cells != null) calloc.free(cells);
-      _abi.releaseSnapshot(snapshot);
-      calloc.free(written);
-      calloc.free(scalarCount);
-      calloc.free(scalarPointer);
-      calloc.free(row);
+      _abi.releaseSnapshot(slot);
+      calloc.free(slot);
       calloc.free(metadata);
-      calloc.free(snapshot);
     }
+  }
+
+  TerminalTextSnapshot observe({BigInt? afterRevision, int historyOffset = 0}) {
+    return observeWith(
+      (snapshot, _) {
+        final metadata = calloc<_Metadata>();
+        final row = calloc<_Row>();
+        final scalarPointer = calloc<Pointer<Uint32>>();
+        final scalarCount = calloc<IntPtr>();
+        final written = calloc<IntPtr>();
+        Pointer<_Cell>? cells;
+        try {
+          _check('snapshot metadata', _abi.metadata(snapshot, metadata));
+          _check(
+            'snapshot scalars',
+            _abi.scalars(snapshot, scalarPointer, scalarCount),
+          );
+          if (scalarCount.value != metadata.ref.scalarCount) {
+            throw const FormatException(
+              'Snapshot scalar count differs from metadata',
+            );
+          }
+          final scalars = scalarCount.value == 0
+              ? const <int>[]
+              : scalarPointer.value.asTypedList(scalarCount.value);
+          cells = calloc<_Cell>(metadata.ref.cellCount);
+          _check(
+            'snapshot cells',
+            _abi.cells(snapshot, 0, cells, metadata.ref.cellCount, written),
+          );
+          if (written.value != metadata.ref.cellCount) {
+            throw const FormatException('Incomplete snapshot cell copy');
+          }
+          final lines = <String>[];
+          for (var index = 0; index < metadata.ref.rowCount; index++) {
+            _check('snapshot row', _abi.row(snapshot, index, row));
+            final start = row.ref.cellOffset;
+            final end = start + row.ref.cellCount;
+            if (end > metadata.ref.cellCount) {
+              throw const FormatException('Snapshot row exceeds cells');
+            }
+            final text = StringBuffer();
+            for (var cellIndex = start; cellIndex < end; cellIndex++) {
+              final cell = (cells + cellIndex).ref;
+              if (cell.scalarCount == 0) {
+                if (cell.x == 0 && cell.y == 0) text.write(' ');
+                continue;
+              }
+              final scalarEnd = cell.scalarOffset + cell.scalarCount;
+              if (scalarEnd > scalars.length) {
+                throw const FormatException('Snapshot cell exceeds scalars');
+              }
+              text.write(
+                String.fromCharCodes(
+                  scalars.sublist(cell.scalarOffset, scalarEnd),
+                ),
+              );
+            }
+            lines.add(text.toString());
+          }
+          return TerminalTextSnapshot(
+            serverId: _ready.serverId,
+            sessionId: _ready.sessionId,
+            instanceId: _ready.instanceId,
+            clientId: _ready.clientId,
+            deliveryRevision: fromNativeIdentity(metadata.ref.deliveryRevision),
+            terminalRevision: fromNativeIdentity(metadata.ref.terminalRevision),
+            rows: metadata.ref.rows,
+            columns: metadata.ref.columns,
+            cursorRow: metadata.ref.cursorRow,
+            cursorColumn: metadata.ref.cursorColumn,
+            lines: List.unmodifiable(lines),
+          );
+        } finally {
+          if (cells != null) calloc.free(cells);
+          calloc.free(written);
+          calloc.free(scalarCount);
+          calloc.free(scalarPointer);
+          calloc.free(row);
+          calloc.free(metadata);
+        }
+      },
+      afterRevision: afterRevision,
+      historyOffset: historyOffset,
+    );
   }
 
   void sendText(String input) {

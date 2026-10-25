@@ -124,6 +124,8 @@ pub const usage = direct.usage;
 pub const missingExternalResources = direct.missingExternalResources;
 /// Produces one backend-facing frame against exact residency.
 pub const frame = direct.frame;
+/// Validates backend resource identity, generation and extent before projection.
+pub const validateResidencies = direct.validateResidencies;
 /// Borrows the current retained-row acceleration view when eligible.
 pub const rowScene = direct.rowScene;
 /// Plans exact bindings for visible canonical VT images.
