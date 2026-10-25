@@ -37,3 +37,14 @@ selection are separate attended canaries.
 The Linux runner scaffold exists but Home currently lacks Ninja; there is
 no validated Linux desktop bundle yet. iOS host
 packaging is also pending.
+
+## Android native canary
+
+`integration_test/native_client_test.dart` loads the APK-packaged native client
+on Android and performs real Session/Instance CRUD, then cleans up. It requires
+an explicit `HOWL_CANARY_ENDPOINT` via `--dart-define`. The initial Note10 pass
+used Home USB ADB reverse to a localhost development Server; this proves native
+ABI, Android library loading and transport correctness, **not** representative
+remote-network latency. A direct Note10-to-Home Cloudflare Mesh connection to
+Home's Mesh-bound dev port timed out and remains a separate gate. The main
+Android manifest owns TCP socket permission in all build modes.

@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The Server client opens native TCP sockets outside Flutter's HTTP stack. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="howl_sessions"
         android:name="${applicationName}"
