@@ -139,6 +139,13 @@ typedef _OpenDart = int Function(
 );
 typedef _ReleaseNative = Void Function(Pointer<Pointer<Void>>);
 typedef _ReleaseDart = void Function(Pointer<Pointer<Void>>);
+typedef _InterruptCreateNative = Uint32 Function(
+  Uint32,
+  Pointer<Pointer<Void>>,
+);
+typedef _InterruptCreateDart = int Function(int, Pointer<Pointer<Void>>);
+typedef _InterruptCancelNative = Uint32 Function(Pointer<Void>);
+typedef _InterruptCancelDart = int Function(Pointer<Void>);
 typedef _IdentityNative = Uint32 Function(Pointer<Void>, Pointer<_Ready>);
 typedef _IdentityDart = int Function(Pointer<Void>, Pointer<_Ready>);
 typedef _ObserveNative = Uint32 Function(
@@ -148,6 +155,30 @@ typedef _ObserveNative = Uint32 Function(
   Pointer<Pointer<Void>>,
 );
 typedef _ObserveDart = int Function(
+  Pointer<Void>,
+  int,
+  int,
+  Pointer<Pointer<Void>>,
+);
+typedef _CacheCreateNative = Uint32 Function(
+  Uint32,
+  Pointer<Void>,
+  Pointer<Pointer<Void>>,
+);
+typedef _CacheCreateDart = int Function(
+  int,
+  Pointer<Void>,
+  Pointer<Pointer<Void>>,
+);
+typedef _ObserveCachedNative = Uint32 Function(
+  Pointer<Void>,
+  Pointer<Void>,
+  Uint64,
+  Uint32,
+  Pointer<Pointer<Void>>,
+);
+typedef _ObserveCachedDart = int Function(
+  Pointer<Void>,
   Pointer<Void>,
   int,
   int,
@@ -196,7 +227,18 @@ final class _AttachmentAbi {
   _AttachmentAbi() : this._(openServerClientLibrary());
 
   _AttachmentAbi._(DynamicLibrary library)
-    : open = library.lookupFunction<_OpenNative, _OpenDart>(
+    : createInterrupt = library
+          .lookupFunction<_InterruptCreateNative, _InterruptCreateDart>(
+            'hsc_interrupt_create',
+          ),
+      cancelInterrupt = library
+          .lookupFunction<_InterruptCancelNative, _InterruptCancelDart>(
+            'hsc_interrupt_cancel',
+          ),
+      releaseInterrupt = library.lookupFunction<_ReleaseNative, _ReleaseDart>(
+        'hsc_interrupt_release',
+      ),
+      open = library.lookupFunction<_OpenNative, _OpenDart>(
         'hsc_attachment_open',
       ),
       release = library.lookupFunction<_ReleaseNative, _ReleaseDart>(
@@ -208,6 +250,17 @@ final class _AttachmentAbi {
       observe = library.lookupFunction<_ObserveNative, _ObserveDart>(
         'hsc_observe',
       ),
+      createCache = library
+          .lookupFunction<_CacheCreateNative, _CacheCreateDart>(
+            'hsc_cache_create',
+          ),
+      releaseCache = library.lookupFunction<_ReleaseNative, _ReleaseDart>(
+        'hsc_cache_release',
+      ),
+      observeCached = library
+          .lookupFunction<_ObserveCachedNative, _ObserveCachedDart>(
+            'hsc_observe_cached',
+          ),
       releaseSnapshot = library.lookupFunction<_ReleaseNative, _ReleaseDart>(
         'hsc_snapshot_release',
       ),
@@ -234,10 +287,16 @@ final class _AttachmentAbi {
     }
   }
 
+  final _InterruptCreateDart createInterrupt;
+  final _InterruptCancelDart cancelInterrupt;
+  final _ReleaseDart releaseInterrupt;
   final _OpenDart open;
   final _ReleaseDart release;
   final _IdentityDart identity;
   final _ObserveDart observe;
+  final _CacheCreateDart createCache;
+  final _ReleaseDart releaseCache;
+  final _ObserveCachedDart observeCached;
   final _ReleaseDart releaseSnapshot;
   final _MetadataDart metadata;
   final _RowDart row;
@@ -249,6 +308,46 @@ final class _AttachmentAbi {
 
 void _check(String operation, int code) {
   if (code != _ok) throw ServerClientFailure(operation, code);
+}
+
+/// The initiating isolate owns this token throughout the worker's lifetime.
+/// Only cancel may run across isolates; release follows worker exit.
+final class NativeTerminalInterrupt {
+  NativeTerminalInterrupt._(this._abi, this._slot);
+
+  final _AttachmentAbi _abi;
+  final Pointer<Pointer<Void>> _slot;
+  bool _released = false;
+
+  static NativeTerminalInterrupt create() {
+    final abi = _AttachmentAbi();
+    final slot = calloc<Pointer<Void>>();
+    try {
+      _check('interrupt create', abi.createInterrupt(_abiVersion, slot));
+      return NativeTerminalInterrupt._(abi, slot);
+    } catch (_) {
+      abi.releaseInterrupt(slot);
+      calloc.free(slot);
+      rethrow;
+    }
+  }
+
+  int get address {
+    if (_released) throw StateError('Interrupt already released');
+    return _slot.value.address;
+  }
+
+  void cancel() {
+    if (_released) return;
+    _check('interrupt cancel', _abi.cancelInterrupt(_slot.value));
+  }
+
+  void close() {
+    if (_released) return;
+    _released = true;
+    _abi.releaseInterrupt(_slot);
+    calloc.free(_slot);
+  }
 }
 
 /// Synchronous owner of one dedicated Instance connection.
@@ -263,13 +362,15 @@ final class NativeTerminalAttachment {
   final Pointer<Pointer<Void>> _slot;
   final _ReadyIdentity _ready;
   bool _released = false;
+  Pointer<Pointer<Void>>? _cache;
 
   static NativeTerminalAttachment connect(
     String endpoint,
     BigInt serverId,
     BigInt sessionId,
-    BigInt instanceId,
-  ) {
+    BigInt instanceId, {
+    int? interruptAddress,
+  }) {
     final abi = _AttachmentAbi();
     final addressBytes = utf8.encode(endpoint);
     final address = calloc<Uint8>(addressBytes.length);
@@ -286,7 +387,9 @@ final class NativeTerminalAttachment {
           toNativeIdentity(serverId),
           toNativeIdentity(sessionId),
           toNativeIdentity(instanceId),
-          nullptr,
+          interruptAddress == null
+              ? nullptr
+              : Pointer<Void>.fromAddress(interruptAddress),
           attachment,
         ),
       );
@@ -308,6 +411,22 @@ final class NativeTerminalAttachment {
     }
   }
 
+  /// Enables the native row-delta transport cache for this exact attachment.
+  /// The first cut is complete; subsequent observations reuse its baseline.
+  void enableIncrementalObservation() {
+    if (_released) throw StateError('Attachment already released');
+    if (_cache != null) return;
+    final slot = calloc<Pointer<Void>>();
+    try {
+      _check('cache create', _abi.createCache(_abiVersion, _slot.value, slot));
+      _cache = slot;
+    } catch (_) {
+      _abi.releaseCache(slot);
+      calloc.free(slot);
+      rethrow;
+    }
+  }
+
   TerminalTextSnapshot observe({BigInt? afterRevision, int historyOffset = 0}) {
     if (_released) throw StateError('Attachment already released');
     if (historyOffset < 0 || historyOffset > 0xffffffff) {
@@ -326,7 +445,15 @@ final class NativeTerminalAttachment {
           : toNativeIdentity(afterRevision);
       _check(
         'observe',
-        _abi.observe(_slot.value, after, historyOffset, snapshot),
+        _cache == null
+            ? _abi.observe(_slot.value, after, historyOffset, snapshot)
+            : _abi.observeCached(
+                _slot.value,
+                _cache!.value,
+                after,
+                historyOffset,
+                snapshot,
+              ),
       );
       _check('snapshot metadata', _abi.metadata(snapshot.value, metadata));
       _check(
@@ -422,6 +549,12 @@ final class NativeTerminalAttachment {
   void close() {
     if (_released) return;
     _released = true;
+    final cache = _cache;
+    if (cache != null) {
+      _abi.releaseCache(cache);
+      calloc.free(cache);
+      _cache = null;
+    }
     _abi.release(_slot);
     calloc.free(_slot);
   }

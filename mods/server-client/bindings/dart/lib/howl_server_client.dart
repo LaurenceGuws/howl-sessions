@@ -11,10 +11,12 @@ import 'src/native.dart';
 import 'src/native_attachment.dart';
 import 'src/launch.dart';
 import 'src/terminal_text.dart';
+import 'src/terminal_text_observer.dart';
 
 export 'src/catalog.dart';
 export 'src/launch.dart';
 export 'src/terminal_text.dart';
+export 'src/terminal_text_observer.dart';
 
 /// The native module owns framing and transport. Flutter schedules requests.
 final class ServerClient {
@@ -60,4 +62,12 @@ final class ServerClient {
       attachment.close();
     }
   });
+
+  /// One retained, cancellable, observation-only Instance attachment.
+  Future<TerminalTextObserver> followText(
+    String endpoint,
+    BigInt serverId,
+    BigInt sessionId,
+    BigInt instanceId,
+  ) => TerminalTextObserver.start(endpoint, serverId, sessionId, instanceId);
 }

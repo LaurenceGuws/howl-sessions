@@ -83,6 +83,41 @@ Future<void> main(List<String> args) async {
           resized.clientId != first.clientId) {
         throw StateError('Resize was not observed on the same attachment');
       }
+      final follower = await client.followText(
+        endpoint,
+        tree.serverId,
+        session,
+        instance,
+      );
+      try {
+        final initial = await follower.next().timeout(
+          const Duration(seconds: 5),
+        );
+        if (initial.serverId != first.serverId ||
+            initial.instanceId != first.instanceId ||
+            initial.clientId == first.clientId) {
+          throw StateError(
+            'Live follower lost independent attachment identity',
+          );
+        }
+        final next = follower.next();
+        attachment.sendText('echo HOWL_FOLLOW_CANARY\n');
+        final changed = await next.timeout(const Duration(seconds: 5));
+        if (changed.deliveryRevision <= initial.deliveryRevision ||
+            changed.clientId != initial.clientId) {
+          throw StateError('Live follower did not advance without polling');
+        }
+        final blocked = follower.next().then(
+          (_) => false,
+          onError: (Object _) => true,
+        );
+        await follower.close().timeout(const Duration(seconds: 5));
+        if (!await blocked) {
+          throw StateError('Closing blocked follower did not cancel the cut');
+        }
+      } finally {
+        await follower.close();
+      }
       stdout.writeln(
         jsonEncode({
           'status': 'pass',
@@ -97,6 +132,8 @@ Future<void> main(List<String> args) async {
           'nonempty_rows': observed.lines
               .where((line) => line.trim().isNotEmpty)
               .length,
+          'live_follow': 'pass',
+          'blocked_cancel': 'pass',
         }),
       );
     } finally {

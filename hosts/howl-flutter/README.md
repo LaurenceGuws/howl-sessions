@@ -12,13 +12,18 @@ boundaries are established.
 - `servers/` owns local named endpoint preferences and their Settings CRUD.
 - `sessions/` shows the selected Server's Session/Instance tree, with Session
   and Instance create/close. The add action for Sessions lives on that pane.
-- `instances/` owns a text-only diagnostic preview from one **dedicated native
-  Instance attachment**, refreshed explicitly. The host does not own framing,
-  decoding or snapshot memory. Incremental observation, input scheduling,
-  VT cell painting and graphics are **not yet implemented** in Flutter.
+- `instances/` owns a **live, read-only text view** from one retained native
+  Instance attachment. The native cache requests row-delta observations after
+  its first complete cut, and the host pulls at most one new observation after
+  each painted frame; the attachment's worker isolate owns blocking I/O. Dispose/reconnect
+  cancels a parked observation before releasing native memory. The host does not
+  own framing, decoding or snapshot memory. Input scheduling, VT cell painting,
+  full styles, graphics and geometry are **not yet implemented** in Flutter.
 - `mods/server-client/bindings/dart` owns all C struct layouts, framing via
   the native library, exact unsigned 64-bit identities and handle cleanup.
-  Each management operation runs off the UI isolate.
+  Each management operation runs off the UI isolate. The observation worker
+  borrows a separately owned native interrupt whose only cross-isolate call is
+  its documented synchronous cancellation. Tokens outlive worker exit.
 
 ## Checks and platform build
 
@@ -26,7 +31,8 @@ boundaries are established.
 client's `dart analyze`, `tool/catalog_canary.dart ENDPOINT` and
 `tool/attachment_canary.dart ENDPOINT` qualify the separate binding. The first
 creates and closes a real remote Session and Instance; the second exercises a
-dedicated terminal attachment, output revision, input and text projection.
+dedicated terminal attachment, output revision, input, retained live following,
+cancel-while-blocked and text projection.
 Both require `HOWL_SERVER_CLIENT_LIBRARY` pointing to the compiled shared ABI
 and an explicitly started development Server.
 The initial Linux and Android attachment integration passes include a Server

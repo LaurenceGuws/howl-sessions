@@ -69,6 +69,28 @@ void main() {
       expect(preview.rows, 24);
       expect(preview.columns, 80);
       expect(preview.lines, hasLength(24));
+
+      final follower = await client.followText(
+        endpoint,
+        before.serverId,
+        sessionId,
+        instanceId,
+      );
+      try {
+        final live = await follower.next().timeout(const Duration(seconds: 10));
+        expect(live.serverId, before.serverId);
+        expect(live.instanceId, instanceId);
+        expect(live.rows, 24);
+        expect(live.lines, hasLength(24));
+        final blocked = follower.next().then(
+          (_) => false,
+          onError: (Object _) => true,
+        );
+        await follower.close().timeout(const Duration(seconds: 5));
+        expect(await blocked, isTrue);
+      } finally {
+        await follower.close();
+      }
     } finally {
       if (instanceId != null) {
         await client.closeInstance(endpoint, sessionId, instanceId);
