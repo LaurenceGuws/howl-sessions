@@ -4,7 +4,10 @@
     .fingerprint = 0x0a653df0c13ae61f,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
-        .howl_vt = .{ .path = "../../../howl/mods/howl-vt" },
+        .howl_vt = .{
+            .url = "https://github.com/LaurenceGuws/howl/releases/download/howl-vt-v0.1.6-dev.1/howl-vt-0.1.6-dev.tar.gz",
+            .hash = "howl_vt-0.1.6-dev-DNIreYs0LgDOt2aL3rgdPt-7HMXb_TcbBDtqWW5zYxTS",
+        },
     },
     .paths = .{
         ".zig-audit.json",

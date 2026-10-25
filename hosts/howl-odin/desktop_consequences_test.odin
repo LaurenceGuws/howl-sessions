@@ -1,7 +1,7 @@
 package main
 
 import "core:testing"
-import vt_native "../../../howl/mods/howl-vt/bindings/odin"
+import vt_native "howl_core:vt"
 import server_native "../../mods/server-client/bindings/odin"
 
 @(test)

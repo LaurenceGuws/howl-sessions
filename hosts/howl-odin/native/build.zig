@@ -21,6 +21,22 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .bundled_render_text = target.result.os.tag != .linux,
     });
+    const vt_dependency = b.dependency("howl_vt", .{ .target = target, .optimize = optimize });
+    const render_dependency = b.dependency("howl_render", .{ .target = target, .optimize = optimize });
+    const bindings = b.step("bindings", "Stage exact released core Odin bindings");
+    inline for (.{
+        .{ "vt", vt_dependency },
+        .{ "render", render_dependency },
+        .{ "instance", instance_dependency },
+    }) |entry| {
+        const install = b.addInstallDirectory(.{
+            .source_dir = entry[1].path("bindings/odin"),
+            .install_dir = .prefix,
+            .install_subdir = "bindings/" ++ entry[0],
+        });
+        bindings.dependOn(&install.step);
+        b.getInstallStep().dependOn(&install.step);
+    }
     root.addImport("test_fonts", instance_dependency.module("howl_text_test_fonts"));
     root.addImport("server_client", client_dependency.module("server_client"));
     root.addImport("server_client_native", client_dependency.module("server_client_native"));

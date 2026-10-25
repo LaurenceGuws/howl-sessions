@@ -1,8 +1,8 @@
 package main
 
 import "core:testing"
-import instance_native "../../../howl/mods/howl-instance/bindings/odin"
-import render_native "../../../howl/mods/howl-render/bindings/odin"
+import instance_native "howl_core:instance"
+import render_native "howl_core:render"
 
 @(test)
 native_frame_owner_layouts :: proc(t: ^testing.T) {

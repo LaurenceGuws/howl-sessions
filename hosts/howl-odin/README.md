@@ -1,6 +1,9 @@
 # howl-odin
 
-Experimental polished desktop client in the Howl module family.
+Versioned native desktop product host. It composes a local Howl Instance or
+explicit remote Howl Sessions without requiring one mode to own the other.
+`VERSION` belongs to this Odin application, independently of the
+`native/build.zig.zon` version belonging to its Zig/C bridge.
 
 See [`EXPERIENCE.md`](EXPERIENCE.md) for the living user-facing experience
 charter. This README remains the narrower ledger of behavior the current client
@@ -20,6 +23,11 @@ Canvas resource/command facts. Attached routes send semantic input through
 `server_client.terminal`; Local sends the same semantic operations directly to its sole
 terminal-thread Instance owner. SDL3_ttf remains only for app
 chrome and IME composition; real terminal presentation is Canvas-only.
+
+The Zig bridge stages exact Howl VT, Render and Instance Odin bindings from
+their pinned release dependencies into `native/zig-out/bindings`. The
+`build.sh` runner selects those through one `howl_core` collection; it never
+imports files from an adjacent Howl source checkout.
 
 Odin has no emergency substitute implementation path. A required canonical
 owner either succeeds or reports/fails explicitly. The sole intentional

@@ -4,7 +4,10 @@
     .version = "0.1.6-dev",
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
-        .howl_text = .{ .path = "../../../../howl/mods/howl-text" },
+        .howl_text = .{
+            .url = "https://github.com/LaurenceGuws/howl/releases/download/howl-text-v0.1.6-dev.3/howl-text-0.1.6-dev.tar.gz",
+            .hash = "howl_text-0.1.6-dev-fp7jPmBp3ACUKhN0RJnUC9Qi9fQYCU69CE5QbRSO71QT",
+        },
     },
     .paths = .{ ".zig-audit.json", "build.zig", "build.zig.zon", "probe.zig", "tests", "web" },
 }

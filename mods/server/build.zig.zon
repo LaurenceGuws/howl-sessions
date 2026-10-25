@@ -7,10 +7,14 @@
         .server_protocol = .{ .path = "../server-protocol" },
         // Integration tests use the released client, never a Server-owned client.
         .server_client = .{ .path = "../server-client" },
-        // Development bridge until the individual Howl package archives are
-        // pinned as independent release dependencies.
-        .howl_instance = .{ .path = "../../../howl/mods/howl-instance" },
-        .howl_vt = .{ .path = "../../../howl/mods/howl-vt" },
+        .howl_instance = .{
+            .url = "https://github.com/LaurenceGuws/howl/releases/download/howl-instance-v0.1.7-dev.1/howl-instance-0.1.7-dev.tar.gz",
+            .hash = "howl_instance-0.1.7-dev-3kR6wSj8BgA32iVuGlLDUsU6BP-WHdy44OAzKA8dAlBO",
+        },
+        .howl_vt = .{
+            .url = "https://github.com/LaurenceGuws/howl/releases/download/howl-vt-v0.1.6-dev.1/howl-vt-0.1.6-dev.tar.gz",
+            .hash = "howl_vt-0.1.6-dev-DNIreYs0LgDOt2aL3rgdPt-7HMXb_TcbBDtqWW5zYxTS",
+        },
     },
     .paths = .{ ".zig-audit.json", "README.md", "build.zig", "build.zig.zon", "src", "test", "docs" },
 }

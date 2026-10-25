@@ -1,7 +1,7 @@
 package main
 
 import "core:c"
-import vt_native "../../../howl/mods/howl-vt/bindings/odin"
+import vt_native "howl_core:vt"
 import "core:sync"
 import "core:thread"
 import SDL "vendor:sdl3"

@@ -25,5 +25,5 @@ decoders, render semantics and SIGPIPE). The Server package owns the separate
 live-service and foreign-C integration tests, which consume this exact client
 package without giving clients a Server dependency.
 
-This source snapshot uses temporary local Howl core dependency paths. Releases
-must pin independently published core archives with hashes.
+This package pins the independently published Howl core archives by exact Zig
+hash. It requires no sibling Howl checkout.

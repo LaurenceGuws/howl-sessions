@@ -1,9 +1,9 @@
 package main
 
-import instance_native "../../../howl/mods/howl-instance/bindings/odin"
+import instance_native "howl_core:instance"
 
 import "core:c"
-import vt_native "../../../howl/mods/howl-vt/bindings/odin"
+import vt_native "howl_core:vt"
 import "core:sync"
 import "core:thread"
 import "core:time"

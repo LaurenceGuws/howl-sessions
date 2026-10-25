@@ -5,10 +5,18 @@
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .server_protocol = .{ .path = "../server-protocol" },
-        // Development bridge; pin published core package archives for releases.
-        .howl_vt = .{ .path = "../../../howl/mods/howl-vt" },
-        .howl_render = .{ .path = "../../../howl/mods/howl-render" },
-        .howl_text = .{ .path = "../../../howl/mods/howl-text" },
+        .howl_vt = .{
+            .url = "https://github.com/LaurenceGuws/howl/releases/download/howl-vt-v0.1.6-dev.1/howl-vt-0.1.6-dev.tar.gz",
+            .hash = "howl_vt-0.1.6-dev-DNIreYs0LgDOt2aL3rgdPt-7HMXb_TcbBDtqWW5zYxTS",
+        },
+        .howl_render = .{
+            .url = "https://github.com/LaurenceGuws/howl/releases/download/howl-render-v0.1.9-dev.1/howl-render-0.1.9-dev.tar.gz",
+            .hash = "howl_render-0.1.9-dev-4E3u4_sxBwD1DNHtoJLK-mhsVds5Pd-VqeyUzeUe_luX",
+        },
+        .howl_text = .{
+            .url = "https://github.com/LaurenceGuws/howl/releases/download/howl-text-v0.1.6-dev.3/howl-text-0.1.6-dev.tar.gz",
+            .hash = "howl_text-0.1.6-dev-fp7jPmBp3ACUKhN0RJnUC9Qi9fQYCU69CE5QbRSO71QT",
+        },
     },
     .paths = .{ ".zig-audit.json", "README.md", "build.zig", "build.zig.zon", "src", "include", "bindings", "docs", "test" },
 }

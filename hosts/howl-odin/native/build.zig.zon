@@ -1,12 +1,22 @@
 .{
     .name = .howl_odin_bridge,
-    .version = "0.1.7-dev",
+    .version = "0.1.8-dev",
     .fingerprint = 0xc6fd145e88a928bf,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .server_client = .{ .path = "../../../mods/server-client" },
-        .howl_instance = .{ .path = "../../../../howl/mods/howl-instance" },
-        .howl_render = .{ .path = "../../../../howl/mods/howl-render" },
+        .howl_instance = .{
+            .url = "https://github.com/LaurenceGuws/howl/releases/download/howl-instance-v0.1.7-dev.1/howl-instance-0.1.7-dev.tar.gz",
+            .hash = "howl_instance-0.1.7-dev-3kR6wSj8BgA32iVuGlLDUsU6BP-WHdy44OAzKA8dAlBO",
+        },
+        .howl_render = .{
+            .url = "https://github.com/LaurenceGuws/howl/releases/download/howl-render-v0.1.9-dev.1/howl-render-0.1.9-dev.tar.gz",
+            .hash = "howl_render-0.1.9-dev-4E3u4_sxBwD1DNHtoJLK-mhsVds5Pd-VqeyUzeUe_luX",
+        },
+        .howl_vt = .{
+            .url = "https://github.com/LaurenceGuws/howl/releases/download/howl-vt-v0.1.6-dev.1/howl-vt-0.1.6-dev.tar.gz",
+            .hash = "howl_vt-0.1.6-dev-DNIreYs0LgDOt2aL3rgdPt-7HMXb_TcbBDtqWW5zYxTS",
+        },
     },
     .paths = .{ ".zig-audit.json", "build.zig", "build.zig.zon", "bridge.zig" },
 }

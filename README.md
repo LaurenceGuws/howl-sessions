@@ -8,11 +8,11 @@ Howl's orchestration and application product family.
 
 ## Extraction checkpoint
 
-Server, CLI, Web and Odin have been copied from Howl commit
-`73c529b7e356f27e709e44e05928bb44ca2bcb2e` with no application behavior
-change. The original checkout remains the behavioral reference and is not
-deleted. The copied packages temporarily resolve Howl core through the
-adjacent source checkout; **this is not a distributable release**.
+Server, CLI, Web and Odin originated from Howl commit
+`73c529b7e356f27e709e44e05928bb44ca2bcb2e`. The original checkout
+remains the behavioral reference and is not deleted. The product modules now
+resolve Howl core through **independently published and hash-pinned packages**,
+with no adjacent checkout required.
 
 `zig build test` exercises the maintained packages. Each package retains its
 own `build.zig.zon` version and proofs. `zig build check` runs those proofs
@@ -20,6 +20,8 @@ plus one root audit of all Git-owned Zig source; the installed zig-audit
 currently refuses nested Git configuration roots.
 
 The Server protocol and client are separately owned and versioned; consumers
-select the client without importing Server. Next: independently pinned Howl
-core releases, a fresh Flutter product host, and explicit C/Dart
-foreign-interface ownership. Network follow/streaming is a later experiment.
+select the client without importing Server. The Odin host stages its exact
+VT/Render/Instance bindings from the same pinned packages while retaining its
+direct local Instance route. Next: a fresh Flutter product host, explicit
+C/Dart foreign-interface ownership and independent product qualification.
+Network follow/streaming is a later experiment.

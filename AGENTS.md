@@ -27,8 +27,9 @@ files do not get ceremonial versions. Wire/ABI versions are distinct from
 package versions. VERSION and snapshot.json identify a tested combination,
 never force a child to move in lockstep.
 
-During extraction, paths into the adjacent howl checkout are a development
-bridge only. Do not promote a release while such a dependency remains.
+Core dependencies are immutable published package URLs with exact Zig hashes.
+Never restore implicit paths into an adjacent Howl checkout. Hosts that need
+foreign bindings obtain them from the same pinned packages.
 
 ## Engineering and Git
 

@@ -1,6 +1,6 @@
 package main
 
-import instance_native "../../../howl/mods/howl-instance/bindings/odin"
+import instance_native "howl_core:instance"
 
 import runtime "base:runtime"
 import "core:c"

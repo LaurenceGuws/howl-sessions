@@ -9,7 +9,10 @@
         .howl_web_text = .{ .path = "text" },
         .howl_web_render = .{ .path = "render" },
         .howl_web_gateway = .{ .path = "gateway" },
-        .howl_render = .{ .path = "../../../howl/mods/howl-render" },
+        .howl_render = .{
+            .url = "https://github.com/LaurenceGuws/howl/releases/download/howl-render-v0.1.9-dev.1/howl-render-0.1.9-dev.tar.gz",
+            .hash = "howl_render-0.1.9-dev-4E3u4_sxBwD1DNHtoJLK-mhsVds5Pd-VqeyUzeUe_luX",
+        },
     },
     .paths = .{ ".zig-audit.json", "build.zig", "build.zig.zon", "src", "tests", "text", "render", "gateway", "README.md" },
 }
