@@ -11,7 +11,8 @@ No production client module imports the Server model or a live Instance.
 | `server_client_native` | Native semantic observations and request replies |
 | `server_client_render` | Optional conversion of client observations for Howl Render |
 | `server_client_render_native` | Exact Render-owned native module, forwarded unchanged |
-| `howl_server_client` | Static C ABI with this package's own public header |
+| `howl_server_client` | Static C ABI by default, optional shared ABI (`-Dshared-abi=true`) |
+| `bindings/dart` | Dart FFI for catalog and CRUD, retaining full unsigned u64 identities |
 
 `server_protocol` is the independently versioned wire contract.
 Transport, control and terminal owner modules are shared only with the
@@ -27,3 +28,11 @@ package without giving clients a Server dependency.
 
 This package pins the independently published Howl core archives by exact Zig
 hash. It requires no sibling Howl checkout.
+
+`zig build install -Dshared-abi=true` emits the same version-1 symbols in
+`libhowl_server_client.so` on Linux/Android. The Dart binding owns all native
+struct layouts and handle cleanup; Flutter sees immutable copies and makes
+blocking management requests on worker isolates. The installed header is the
+single authority, and the [Dart live canary](bindings/dart/tool/catalog_canary.dart)
+checks real Session and Instance create/observe/close against an explicit
+development Server. Terminal attachments remain distinct from catalog CRUD.

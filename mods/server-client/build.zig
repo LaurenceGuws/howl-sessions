@@ -5,6 +5,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const bundled = b.option(bool, "bundled_render_text", "Build the client render adapter with bundled howl-text") orelse false;
+    const shared_abi = b.option(bool, "shared-abi", "Install the client C ABI as a shared library for dynamic hosts") orelse false;
     const windows = target.result.os.tag == .windows;
     const protocol = b.dependency("server_protocol", .{ .target = target, .optimize = optimize }).module("server_protocol");
     const vt = b.dependency("howl_vt", .{ .target = target, .optimize = optimize });
@@ -81,11 +82,12 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .link_libc = true,
+        .pic = true,
     });
     abi_root.addImport("server_client", client);
     abi_root.addImport("native_abi_types", native_types);
     abi_root.addImport("client_native", native);
-    const abi = b.addLibrary(.{ .name = "howl_server_client", .linkage = .static, .root_module = abi_root });
+    const abi = b.addLibrary(.{ .name = "howl_server_client", .linkage = if (shared_abi) .dynamic else .static, .root_module = abi_root });
     abi.installHeader(b.path("include/howl_server_client.h"), "howl_server_client.h");
     abi.installHeader(vt.namedLazyPath("howl_vt_native_header"), "howl_vt_native.h");
     b.installArtifact(abi);
