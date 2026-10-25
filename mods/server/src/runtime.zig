@@ -710,12 +710,12 @@ test "one attachment observation allocation failure cannot escape the multi-Inst
 test "post-bind listen failure rolls back only its constructed Unix path" {
     var directory = std.testing.tmpDir(.{});
     defer directory.cleanup();
-    var root_buffer: [std.fs.max_path_bytes]u8 = undefined;
-    const root_len = try directory.dir.realPath(std.testing.io, &root_buffer);
+    // AF_UNIX paths have a 108-byte limit. Keep the test socket names
+    // relative to the test cwd so a deep checkout does not exhaust it.
     var path_buffer: [108]u8 = undefined;
-    const path = try std.fmt.bufPrint(&path_buffer, "{s}/u", .{root_buffer[0..root_len]});
+    const path = try std.fmt.bufPrint(&path_buffer, "{s}/{s}/u", .{ std.testing.TmpDir.parent_dir_path, &directory.sub_path });
     var peer_buffer: [108]u8 = undefined;
-    const peer_path = try std.fmt.bufPrint(&peer_buffer, "{s}/p", .{root_buffer[0..root_len]});
+    const peer_path = try std.fmt.bufPrint(&peer_buffer, "{s}/{s}/p", .{ std.testing.TmpDir.parent_dir_path, &directory.sub_path });
     var peer = try listenUnix(peer_path);
     defer peer.deinit();
     var bound = try bindUnix(path);
