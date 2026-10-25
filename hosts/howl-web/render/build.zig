@@ -13,6 +13,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .bundled_render_text = true,
     });
+    const wire_owner = b.dependency("server_protocol", .{ .target = target, .optimize = optimize });
+    const vectors = wire_owner.namedLazyPath("server_protocol_vectors");
     const client_module = client.module("server_client");
     const text = b.dependency("howl_text", .{
         .target = target,
@@ -97,6 +99,7 @@ pub fn build(b: *std.Build) void {
     external_image_test.addFileArg(text.path("testdata/primary.ttf"));
     external_image_test.addFileArg(text.path("testdata/fira-code-medium.otf"));
     external_image_test.addFileArg(b.path("fonts/SymbolsNerdFontMono-Regular.ttf"));
+    external_image_test.addFileArg(vectors);
     external_image_test.setName("live renderer external image residency");
     check.dependOn(&external_image_test.step);
     const external_image_v4_test = b.addSystemCommand(&.{ "node", "tests/external_image_v4.mjs" });
@@ -105,6 +108,7 @@ pub fn build(b: *std.Build) void {
     external_image_v4_test.addFileArg(text.path("testdata/primary.ttf"));
     external_image_v4_test.addFileArg(text.path("testdata/fira-code-medium.otf"));
     external_image_v4_test.addFileArg(b.path("fonts/SymbolsNerdFontMono-Regular.ttf"));
+    external_image_v4_test.addFileArg(vectors);
     external_image_v4_test.setName("live renderer v4 external image residency");
     check.dependOn(&external_image_v4_test.step);
     const multi_image_test = b.addSystemCommand(&.{ "node", "tests/multi_image.mjs" });
@@ -113,6 +117,7 @@ pub fn build(b: *std.Build) void {
     multi_image_test.addFileArg(text.path("testdata/primary.ttf"));
     multi_image_test.addFileArg(text.path("testdata/fira-code-medium.otf"));
     multi_image_test.addFileArg(b.path("fonts/SymbolsNerdFontMono-Regular.ttf"));
+    multi_image_test.addFileArg(vectors);
     multi_image_test.setName("live renderer bounded multi image residency");
     check.dependOn(&multi_image_test.step);
     const multi_image_v4_test = b.addSystemCommand(&.{ "node", "tests/multi_image_v4.mjs" });
@@ -121,6 +126,7 @@ pub fn build(b: *std.Build) void {
     multi_image_v4_test.addFileArg(text.path("testdata/primary.ttf"));
     multi_image_v4_test.addFileArg(text.path("testdata/fira-code-medium.otf"));
     multi_image_v4_test.addFileArg(b.path("fonts/SymbolsNerdFontMono-Regular.ttf"));
+    multi_image_v4_test.addFileArg(vectors);
     multi_image_v4_test.setName("live renderer v4 bounded multi image residency");
     check.dependOn(&multi_image_v4_test.step);
     const visible_text_test = b.addSystemCommand(&.{ "node", "tests/visible_text.mjs" });
@@ -129,6 +135,7 @@ pub fn build(b: *std.Build) void {
     visible_text_test.addFileArg(text.path("testdata/primary.ttf"));
     visible_text_test.addFileArg(text.path("testdata/fira-code-medium.otf"));
     visible_text_test.addFileArg(b.path("fonts/SymbolsNerdFontMono-Regular.ttf"));
+    visible_text_test.addFileArg(vectors);
     visible_text_test.setName("live renderer visible text projection");
     check.dependOn(&visible_text_test.step);
     const frame_compat_test = b.addSystemCommand(&.{ "node", "tests/frame_compat.mjs" });
@@ -137,6 +144,7 @@ pub fn build(b: *std.Build) void {
     frame_compat_test.addFileArg(text.path("testdata/primary.ttf"));
     frame_compat_test.addFileArg(text.path("testdata/fira-code-medium.otf"));
     frame_compat_test.addFileArg(b.path("fonts/SymbolsNerdFontMono-Regular.ttf"));
+    frame_compat_test.addFileArg(vectors);
     frame_compat_test.setName("live renderer frame generation compatibility");
     check.dependOn(&frame_compat_test.step);
     const asset_contract_test = b.addSystemCommand(&.{ "node", "tests/asset_contract.mjs" });

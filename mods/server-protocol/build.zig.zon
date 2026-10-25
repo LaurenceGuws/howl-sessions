@@ -1,0 +1,19 @@
+.{
+    .name = .server_protocol,
+    .version = "0.1.0-dev",
+    .fingerprint = 0x0a653df0c13ae61f,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        .howl_vt = .{ .path = "../../../howl/mods/howl-vt" },
+    },
+    .paths = .{
+        ".zig-audit.json",
+        "README.md",
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "docs",
+        "protocol",
+        "tools",
+    },
+}

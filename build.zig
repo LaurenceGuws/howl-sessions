@@ -19,6 +19,12 @@ pub fn build(b: *std.Build) void {
         tests.dependOn(child_tests);
     }
 
+    // One package identity must serve both direct wire consumers and Server's
+    // compatibility export. Duplicating the protocol module would split types.
+    const owned_protocol = b.dependency("server_protocol", .{ .target = target, .optimize = optimize }).module("server_protocol");
+    const forwarded_protocol = b.dependency("server", .{ .target = target, .optimize = optimize }).module("server_protocol");
+    std.debug.assert(owned_protocol == forwarded_protocol);
+
     const zig_audit = b.addSystemCommand(&.{ "zig-audit", "check" });
     zig_audit.setCwd(b.path("."));
     audit.dependOn(&zig_audit.step);

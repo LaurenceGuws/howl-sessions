@@ -5,6 +5,7 @@
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .server = .{ .path = "../../../mods/server" },
+        .server_protocol = .{ .path = "../../../mods/server-protocol" },
         .howl_web_text = .{ .path = "../text" },
         .howl_render = .{ .path = "../../../../howl/mods/howl-render" },
         .howl_text = .{ .path = "../../../../howl/mods/howl-text" },

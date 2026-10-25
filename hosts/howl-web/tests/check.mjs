@@ -250,7 +250,7 @@ payload = output().subarray(12); assert.equal(output()[5], 32);
 assert.equal(payload.readBigUInt64BE(0), 0n); assert.equal(payload.readUInt32BE(8), 37);
 assert.equal(w.hw_observe(1, 0), 0); // at most one outstanding operation
 assert.equal(w.hw_send_text(1), 0);
-const vectorCorpus = JSON.parse(await readFile('../../mods/server/protocol/vectors.json', 'utf8'));
+const vectorCorpus = JSON.parse(await readFile(process.argv[3], 'utf8'));
 const completeVector = vectorCorpus.cases.find(test => test.id === 'snapshot_text_v1_complete');
 assert.ok(completeVector?.hex);
 const completeSnapshot = Buffer.from(completeVector.hex, 'hex');

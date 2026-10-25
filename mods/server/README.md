@@ -22,10 +22,12 @@ the optional VT codec; local terminal composition does not import this package.
 ## Shared protocol
 
 `server_protocol` owns the bounded control and terminal-interaction wire in
-[src/protocol](src/protocol). `server_client` owns the connection/control and
+the independently versioned [Server protocol](../server-protocol) package.
+`server_client` owns the connection/control and
 terminal APIs in [src/client](src/client), with private transport beneath it.
-These are independent module imports from this same package; neither client nor
-wire-only consumers import the Server model, Instance, PTY or live VT.
+Server forwards the exact imported protocol module for existing consumers.
+Neither client nor wire-only consumers import the Server model, Instance, PTY
+or live VT.
 
 All connections use one SRVR version 2 envelope. Catalog/CRUD connections stay in
 Server control; each successful attachment dedicates its stream to one exact
@@ -50,7 +52,7 @@ attachment; only explicit close destroys the Instance. UI owns tabs and layout.
 `zig build check test` proves the complete family, including a foreign C caller
 against a private live Server. `zig build wire` validates its
 wire corpus. The [runtime](docs/runtime.md), [client](docs/client.md),
-[byte client](docs/byte-client.md) and [protocol](docs/protocol.md) contracts
+[byte client](docs/byte-client.md) and [protocol](../server-protocol/docs/protocol.md) contracts
 describe the selected connection interfaces.
 
 ## Control service

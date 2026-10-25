@@ -4,14 +4,14 @@ import {assertTextImports, createTextRuntime} from '../../text/web/runtime.mjs';
 import {CommandV3Length, FRAME_SCHEMA_V3, parseRendererFrameV3, requireFrameV3, selectRendererFrameV3} from '../web/frame_v3.mjs';
 import {FRAME_SCHEMA_V4, parseRendererFrameV4, qualifiedKeyV4, selectRendererFrameV4} from '../web/frame_v4.mjs';
 
-const [wasmPath, primaryPath, fallbackPath, symbolPath] = process.argv.slice(2);
+const [wasmPath, primaryPath, fallbackPath, symbolPath, vectorsPath] = process.argv.slice(2);
 const binary = await readFile(wasmPath);
 const module = await WebAssembly.compile(binary);
 assertTextImports(module);
 const [primary, fallback, symbol] = await Promise.all([
   readFile(primaryPath), readFile(fallbackPath), readFile(symbolPath),
 ]);
-const corpus = JSON.parse(await readFile('../../../mods/server/protocol/vectors.json', 'utf8'));
+const corpus = JSON.parse(await readFile(vectorsPath, 'utf8'));
 const vector = corpus.cases.find(value => value.id === 'snapshot_text_v1_complete');
 assert.ok(vector?.hex);
 const snapshot = Buffer.from(vector.hex, 'hex');

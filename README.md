@@ -19,6 +19,7 @@ own `build.zig.zon` version and proofs. `zig build check` runs those proofs
 plus one root audit of all Git-owned Zig source; the installed zig-audit
 currently refuses nested Git configuration roots.
 
-Next: independently pinned Howl package releases, finer protocol/client
-release roots, fresh Flutter host, and explicit C/Dart
+The pure Server protocol now has a separate package/version and exact forwarded
+module identity. Next: independently pinned Howl package releases, a separate
+client release root, fresh Flutter host, and explicit C/Dart
 foreign-interface ownership. Network follow/streaming is a later experiment.

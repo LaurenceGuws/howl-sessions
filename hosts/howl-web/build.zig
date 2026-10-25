@@ -6,6 +6,7 @@ pub fn build(b: *std.Build) void {
     const native_optimize = b.standardOptimizeOption(.{});
     const target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
     const client = b.dependency("server", .{ .target = target, .optimize = .ReleaseSafe });
+    const wire_owner = b.dependency("server_protocol", .{ .target = target, .optimize = .ReleaseSafe });
     const client_module = client.module("server_client");
     const render = b.dependency("howl_render", .{
         .target = target,
@@ -52,6 +53,7 @@ pub fn build(b: *std.Build) void {
     const test_command = b.addSystemCommand(&.{ "node", "tests/check.mjs" });
     test_command.setCwd(b.path("."));
     test_command.addFileArg(wasm.getEmittedBin());
+    test_command.addFileArg(wire_owner.namedLazyPath("server_protocol_vectors"));
     check.dependOn(&test_command.step);
     const live = b.step("live", "Test this Wasm client against a caller-supplied disposable exact Server Instance");
     const live_command = b.addSystemCommand(&.{ "node", "tests/live.mjs" });

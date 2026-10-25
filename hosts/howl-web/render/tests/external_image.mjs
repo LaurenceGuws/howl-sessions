@@ -3,7 +3,7 @@ import {readFile} from 'node:fs/promises';
 import {assertTextImports, createTextRuntime} from '../../text/web/runtime.mjs';
 import {CommandV3Length, selectRendererFrameV3} from '../web/frame_v3.mjs';
 
-const [wasmPath, primaryPath, fallbackPath, symbolPath] = process.argv.slice(2);
+const [wasmPath, primaryPath, fallbackPath, symbolPath, vectorsPath] = process.argv.slice(2);
 const binary = await readFile(wasmPath);
 const module = await WebAssembly.compile(binary);
 assertTextImports(module);
@@ -34,7 +34,7 @@ for (const format of [3,2]) {
   assert.equal(w.rv_init(primary.length, fallback.length, symbol.length, 18), 1, errorText());
   if (format === 3) selectRendererFrameV3(w);
 
-  const corpus = JSON.parse(await readFile('../../../mods/server/protocol/vectors.json', 'utf8'));
+  const corpus = JSON.parse(await readFile(vectorsPath, 'utf8'));
   const test = corpus.cases.find(value => value.id === 'snapshot_graphics_manifest');
   assert.ok(test?.hex);
   const snapshot = Buffer.from(test.hex, 'hex');

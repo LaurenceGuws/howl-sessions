@@ -10,12 +10,12 @@ pub fn build(b: *std.Build) void {
     const codec = vt.module("howl_vt_codec");
     const instance = b.dependency("howl_instance", .{ .target = target, .optimize = optimize }).module("howl_instance_headless");
 
-    const protocol = b.addModule("server_protocol", .{
-        .root_source_file = b.path("src/protocol/protocol.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    protocol.addImport("howl_vt_codec", codec);
+    const wire_owner = b.dependency("server_protocol", .{ .target = target, .optimize = optimize });
+    const protocol = wire_owner.module("server_protocol");
+    // Existing consumers retain the exact package-owned module identity.
+    // zig-audit: acknowledge panic
+    // reason: Build graph allocation failure is unrecoverable while forwarding an owned module.
+    b.modules.put(b.allocator, "server_protocol", protocol) catch @panic("OOM");
 
     const byte_client = b.addModule("server_client_byte", .{
         .root_source_file = b.path("src/client/terminal/byte.zig"),
@@ -163,12 +163,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     owner.addImport("server", model);
-    const terminal_wire = b.createModule(.{
-        .root_source_file = b.path("src/protocol/terminal.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    terminal_wire.addImport("howl_vt_codec", codec);
 
     // Public client composition receives only these independently selected roots.
     const client_boundary = b.createModule(.{
@@ -192,8 +186,6 @@ pub fn build(b: *std.Build) void {
         .{ "server-service", service },
         .{ "server-runtime", runtime },
         .{ "server-owner-api", owner },
-        .{ "server-protocol", protocol },
-        .{ "server-terminal-wire", terminal_wire },
         .{ "server-client", control_tests },
         .{ "server-client-boundary", client_boundary },
         .{ "server-terminal-client", terminal },
@@ -255,10 +247,8 @@ pub fn build(b: *std.Build) void {
     const native_run = b.addRunArtifact(native_proof);
     tests.dependOn(&native_run.step);
     b.step("test:native", "Qualify native client semantics and lifecycle boundaries").dependOn(&native_run.step);
-    const vectors = b.addSystemCommand(&.{ "python3", "tools/validate_vectors.py", "protocol/vectors.json" });
-    vectors.setCwd(b.path("."));
     const wire = b.step("wire", "Validate the Server terminal wire corpus");
-    wire.dependOn(&vectors.step);
+    wire.dependOn(&wire_owner.builder.top_level_steps.get("wire").?.step);
     check.dependOn(wire);
     tests.dependOn(wire);
     b.default_step = check;

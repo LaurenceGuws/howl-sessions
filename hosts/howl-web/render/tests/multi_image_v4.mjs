@@ -3,7 +3,7 @@ import {readFile} from 'node:fs/promises';
 import {assertTextImports, createTextRuntime} from '../../text/web/runtime.mjs';
 import {parseRendererFrameV4, selectRendererFrameV4} from '../web/frame_v4.mjs';
 
-const [wasmPath, primaryPath, fallbackPath, symbolPath] = process.argv.slice(2);
+const [wasmPath, primaryPath, fallbackPath, symbolPath, vectorsPath] = process.argv.slice(2);
 const binary = await readFile(wasmPath);
 const module = await WebAssembly.compile(binary);
 assertTextImports(module);
@@ -122,7 +122,7 @@ function encodeGraphics() {
   return result;
 }
 
-const corpus = JSON.parse(await readFile('../../../mods/server/protocol/vectors.json', 'utf8'));
+const corpus = JSON.parse(await readFile(vectorsPath, 'utf8'));
 const frozen = corpus.cases.find(value => value.id === 'snapshot_graphics_manifest');
 assert.ok(frozen?.hex);
 const originalFrames = parseFrames(Buffer.from(frozen.hex, 'hex'));
