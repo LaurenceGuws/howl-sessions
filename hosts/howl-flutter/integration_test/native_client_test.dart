@@ -91,6 +91,43 @@ void main() {
       } finally {
         await follower.close();
       }
+
+      final inputFollower = await client.followText(
+        endpoint,
+        before.serverId,
+        sessionId,
+        instanceId,
+      );
+      try {
+        final initial = await inputFollower.next().timeout(
+          const Duration(seconds: 10),
+        );
+        final input = await client.openTextInput(
+          endpoint,
+          before.serverId,
+          sessionId,
+          instanceId,
+        );
+        try {
+          await input.ready.timeout(const Duration(seconds: 10));
+          // Flutter sends on a separate native attachment while the long-poll
+          // remains outstanding on the observation attachment.
+          final next = inputFollower.next();
+          await input
+              .sendText('echo HOWL_ANDROID_INPUT\n')
+              .timeout(const Duration(seconds: 10));
+          final changed = await next.timeout(const Duration(seconds: 10));
+          expect(changed.clientId, initial.clientId);
+          expect(
+            changed.deliveryRevision,
+            greaterThan(initial.deliveryRevision),
+          );
+        } finally {
+          await input.close();
+        }
+      } finally {
+        await inputFollower.close();
+      }
     } finally {
       if (instanceId != null) {
         await client.closeInstance(endpoint, sessionId, instanceId);

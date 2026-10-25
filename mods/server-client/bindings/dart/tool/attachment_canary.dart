@@ -118,6 +118,72 @@ Future<void> main(List<String> args) async {
       } finally {
         await follower.close();
       }
+
+      final inputFollower = await client.followText(
+        endpoint,
+        tree.serverId,
+        session,
+        instance,
+      );
+      try {
+        final initial = await inputFollower.next().timeout(
+          const Duration(seconds: 5),
+        );
+        final input = await client.openTextInput(
+          endpoint,
+          tree.serverId,
+          session,
+          instance,
+        );
+        try {
+          await input.ready.timeout(const Duration(seconds: 5));
+          // One attachment is blocked in observe while another owns input.
+          // Sending over that first attachment would deadlock this test.
+          final waiting = inputFollower.next();
+          await input
+              .sendText('echo HOWL_INDEPENDENT_INPUT\n')
+              .timeout(const Duration(seconds: 5));
+          final delivered = await waiting.timeout(const Duration(seconds: 5));
+          if (delivered.deliveryRevision <= initial.deliveryRevision ||
+              delivered.clientId != initial.clientId) {
+            throw StateError(
+              'Independent input did not wake parked observation',
+            );
+          }
+          try {
+            await input.sendText('x' * 65536);
+            throw StateError('Oversize input was accepted');
+          } on RangeError {
+            // A rejected operation must not tear down the retained attachment.
+          }
+          await input
+              .sendText('echo HOWL_INPUT_AFTER_REJECTION\n')
+              .timeout(const Duration(seconds: 5));
+        } finally {
+          await input.close();
+        }
+      } finally {
+        await inputFollower.close();
+      }
+      final rejected = await client.openTextInput(
+        endpoint,
+        tree.serverId + BigInt.one,
+        session,
+        instance,
+      );
+      try {
+        var refused = false;
+        try {
+          await rejected.ready.timeout(const Duration(seconds: 5));
+        } on StateError {
+          refused = true;
+        }
+        if (!refused) {
+          throw StateError('Incorrect Server identity opened an attachment');
+        }
+      } finally {
+        await rejected.close();
+      }
       stdout.writeln(
         jsonEncode({
           'status': 'pass',
@@ -133,6 +199,7 @@ Future<void> main(List<String> args) async {
               .where((line) => line.trim().isNotEmpty)
               .length,
           'live_follow': 'pass',
+          'independent_input': 'pass',
           'blocked_cancel': 'pass',
         }),
       );

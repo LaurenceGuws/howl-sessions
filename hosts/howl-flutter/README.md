@@ -12,16 +12,18 @@ boundaries are established.
 - `servers/` owns local named endpoint preferences and their Settings CRUD.
 - `sessions/` shows the selected Server's Session/Instance tree, with Session
   and Instance create/close. The add action for Sessions lives on that pane.
-- `instances/` owns a **live, read-only text view** from one retained native
-  Instance attachment. The native cache requests row-delta observations after
-  its first complete cut, and the host pulls at most one new observation after
-  each painted frame; the attachment's worker isolate owns blocking I/O. Dispose/reconnect
-  cancels a parked observation before releasing native memory. The host does not
-  own framing, decoding or snapshot memory. Input scheduling, VT cell painting,
-  full styles, graphics and geometry are **not yet implemented** in Flutter.
+- `instances/` owns a live text view and **explicit line input** to one
+  Instance. Two independently attached native clients have different jobs:
+  one long-polls for row-delta observations while the other sends UTF-8 input.
+  Each has one isolate and at most one outstanding operation. The host requests
+  its next observation only after painting the previous frame. Dispose/reconnect
+  cancels blocked I/O and joins the worker before freeing native interruption
+  memory. The host does not own framing, decoding or snapshot memory. Shell-line
+  submission adds Enter; full terminal key handling, VT cell painting, styles,
+  graphics and geometry are **not yet implemented** in Flutter.
 - `mods/server-client/bindings/dart` owns all C struct layouts, framing via
   the native library, exact unsigned 64-bit identities and handle cleanup.
-  Each management operation runs off the UI isolate. The observation worker
+  Each management operation runs off the UI isolate. Each retained attachment
   borrows a separately owned native interrupt whose only cross-isolate call is
   its documented synchronous cancellation. Tokens outlive worker exit.
 
@@ -32,7 +34,8 @@ client's `dart analyze`, `tool/catalog_canary.dart ENDPOINT` and
 `tool/attachment_canary.dart ENDPOINT` qualify the separate binding. The first
 creates and closes a real remote Session and Instance; the second exercises a
 dedicated terminal attachment, output revision, input, retained live following,
-cancel-while-blocked and text projection.
+cancel-while-blocked, independent input during parked observation, oversize
+input rejection and text projection.
 Both require `HOWL_SERVER_CLIENT_LIBRARY` pointing to the compiled shared ABI
 and an explicitly started development Server.
 The initial Linux and Android attachment integration passes include a Server
@@ -53,7 +56,8 @@ packaging is also pending.
 ## Android native canary
 
 `integration_test/native_client_test.dart` loads the APK-packaged native client
-on Android and performs real Session/Instance CRUD, then cleans up. It requires
+on Android and performs real Session/Instance CRUD and concurrent observation
+and text input on separate attachments, then cleans up. It requires
 an explicit `HOWL_CANARY_ENDPOINT` via `--dart-define`. The initial Note10 pass
 used Home USB ADB reverse to a localhost development Server; this proves native
 ABI, Android library loading and transport correctness, **not** representative

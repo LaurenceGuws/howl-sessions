@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:howl_server_client/howl_server_client.dart';
 
+import 'terminal_input_bar.dart';
+
 /// One retained, cancellable Instance observer. The text projection is only
 /// diagnostic until a proper terminal cell renderer consumes the native facts.
 final class InstanceView extends StatefulWidget {
@@ -163,7 +165,9 @@ final class _InstanceViewState extends State<InstanceView> {
           child: Row(
             children: [
               const Expanded(
-                child: Text('Live text · read-only, without terminal styling'),
+                child: Text(
+                  'Live text · input below, without terminal styling',
+                ),
               ),
               IconButton(
                 tooltip: 'Reconnect terminal observation',
@@ -201,6 +205,14 @@ final class _InstanceViewState extends State<InstanceView> {
                   ),
                 ),
         ),
+        if (widget.endpoint != null && widget.serverId != null)
+          TerminalInputBar(
+            endpoint: widget.endpoint!,
+            serverId: widget.serverId!,
+            sessionId: session.id,
+            instanceId: instance.id,
+            running: instance.running,
+          ),
       ],
     );
   }

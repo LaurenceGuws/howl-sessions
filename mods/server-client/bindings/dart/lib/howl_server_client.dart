@@ -11,12 +11,12 @@ import 'src/native.dart';
 import 'src/native_attachment.dart';
 import 'src/launch.dart';
 import 'src/terminal_text.dart';
-import 'src/terminal_text_observer.dart';
+import 'src/terminal_attachments.dart';
 
 export 'src/catalog.dart';
 export 'src/launch.dart';
 export 'src/terminal_text.dart';
-export 'src/terminal_text_observer.dart';
+export 'src/terminal_attachments.dart';
 
 /// The native module owns framing and transport. Flutter schedules requests.
 final class ServerClient {
@@ -70,4 +70,12 @@ final class ServerClient {
     BigInt sessionId,
     BigInt instanceId,
   ) => TerminalTextObserver.start(endpoint, serverId, sessionId, instanceId);
+
+  /// A separate retained attachment for input while observation is parked.
+  Future<TerminalTextInput> openTextInput(
+    String endpoint,
+    BigInt serverId,
+    BigInt sessionId,
+    BigInt instanceId,
+  ) => TerminalTextInput.start(endpoint, serverId, sessionId, instanceId);
 }
