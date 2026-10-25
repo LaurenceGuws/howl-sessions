@@ -55,7 +55,8 @@ lifetimes and bounds. Native synchronous clients keep their existing direct API.
 Production server_client imports server_protocol and its own private transport
 and terminal modules. The client imports no Instance, PTY or Server model. The family's model/service modules
 are used only by integration proofs; they are not imported by the client module.
-The same package owns the independently selected server_runtime listener/scheduler.
+The separate Server package owns the independently selected
+`server_runtime` listener/scheduler.
 
 ## Terminal interaction
 
@@ -104,8 +105,8 @@ canonical howl-render. Desktop Local ownership belongs to the consuming host.
 
 The package publishes the exact `howl_server_client` static artifact and its owned
 `include/howl_server_client.h` header. Downstream Zig builds may link
-`dependency.artifact("howl_server_client")`; the root forwards that same artifact
-and header. The ABI imports only the curated client graph. Maintained native
+`dependency.artifact("howl_server_client")`; it does not pass through the
+Server package. The ABI imports only the curated client graph. Maintained native
 Flutter/Odin/CLI consumers use that same opaque Zig API; their UI-specific bridges
 remain host-owned.
 

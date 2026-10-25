@@ -1,10 +1,10 @@
 .{
     .name = .howl_web_gateway,
-    .version = "0.1.6-dev",
+    .version = "0.1.7-dev",
     .fingerprint = 0x728da2b33afdb000,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
-        .server = .{ .path = "../../../mods/server" },
+        .server_client = .{ .path = "../../../mods/server-client" },
     },
     .paths = .{ ".zig-audit.json", "README.md", "build.zig", "build.zig.zon", "src", "tests" },
 }

@@ -1,10 +1,11 @@
 .{
     .name = .howl_cli,
-    .version = "0.1.6-dev",
+    .version = "0.1.7-dev",
     .fingerprint = 0x75ee688427773164,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .server = .{ .path = "../../mods/server" },
+        .server_client = .{ .path = "../../mods/server-client" },
     },
     .paths = .{ ".zig-audit.json", "README.md", "build.zig", "build.zig.zon", "install", "src", "test" },
 }

@@ -5,7 +5,7 @@ pub fn build(b: *std.Build) void {
     const native_target = b.standardTargetOptions(.{});
     const native_optimize = b.standardOptimizeOption(.{});
     const target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
-    const client = b.dependency("server", .{ .target = target, .optimize = .ReleaseSafe });
+    const client = b.dependency("server_client", .{ .target = target, .optimize = .ReleaseSafe });
     const wire_owner = b.dependency("server_protocol", .{ .target = target, .optimize = .ReleaseSafe });
     const client_module = client.module("server_client");
     const render = b.dependency("howl_render", .{

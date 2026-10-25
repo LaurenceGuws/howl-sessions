@@ -2,7 +2,7 @@ package main
 
 import "core:c"
 import vt_native "../../../howl/mods/howl-vt/bindings/odin"
-import server_native "../../mods/server/bindings/odin"
+import server_native "../../mods/server-client/bindings/odin"
 import render_native "../../../howl/mods/howl-render/bindings/odin"
 import instance_native "../../../howl/mods/howl-instance/bindings/odin"
 

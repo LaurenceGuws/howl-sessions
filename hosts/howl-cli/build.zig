@@ -4,13 +4,14 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const server = b.dependency("server", .{ .target = target, .optimize = optimize });
+    const client = b.dependency("server_client", .{ .target = target, .optimize = optimize });
 
     const module = b.addModule("howl_cli", .{
         .root_source_file = b.path("src/howl_cli.zig"),
         .target = target,
         .optimize = optimize,
     });
-    module.addImport("server_client", server.module("server_client"));
+    module.addImport("server_client", client.module("server_client"));
 
     const root = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
@@ -18,7 +19,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     root.addImport("howl_cli", module);
-    root.addImport("server_client", server.module("server_client"));
+    root.addImport("server_client", client.module("server_client"));
     root.addImport("server_runtime", server.module("server_runtime"));
     const executable = b.addExecutable(.{ .name = "howl", .root_module = root });
     b.installArtifact(executable);
@@ -36,7 +37,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     runtime_test_root.addImport("server_runtime", server.module("server_runtime"));
-    runtime_test_root.addImport("server_client", server.module("server_client"));
+    runtime_test_root.addImport("server_client", client.module("server_client"));
     const runtime_tests = b.addTest(.{
         .name = "howl-cli-server-runtime",
         .root_module = runtime_test_root,

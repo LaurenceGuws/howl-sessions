@@ -9,7 +9,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    const server_client = b.dependency("server", .{
+    const server_client = b.dependency("server_client", .{
         .target = target,
         .optimize = optimize,
     });

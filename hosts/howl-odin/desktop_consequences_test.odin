@@ -2,7 +2,7 @@ package main
 
 import "core:testing"
 import vt_native "../../../howl/mods/howl-vt/bindings/odin"
-import server_native "../../mods/server/bindings/odin"
+import server_native "../../mods/server-client/bindings/odin"
 
 @(test)
 desktop_request_layout_matches_owner :: proc(t: ^testing.T) {

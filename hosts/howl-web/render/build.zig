@@ -8,7 +8,7 @@ pub fn build(b: *std.Build) void {
         .os_tag = .wasi,
         .cpu_features_add = std.Target.wasm.featureSet(&.{ .exception_handling, .reference_types }),
     });
-    const client = b.dependency("server", .{
+    const client = b.dependency("server_client", .{
         .target = target,
         .optimize = optimize,
         .bundled_render_text = true,

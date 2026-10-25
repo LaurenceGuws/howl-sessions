@@ -1,16 +1,16 @@
 .{
     .name = .server,
-    .version = "0.1.7-dev",
+    .version = "0.1.8-dev",
     .fingerprint = 0x5a6dd5f6aaf8b115,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .server_protocol = .{ .path = "../server-protocol" },
+        // Integration tests use the released client, never a Server-owned client.
+        .server_client = .{ .path = "../server-client" },
         // Development bridge until the individual Howl package archives are
         // pinned as independent release dependencies.
         .howl_instance = .{ .path = "../../../howl/mods/howl-instance" },
         .howl_vt = .{ .path = "../../../howl/mods/howl-vt" },
-        .howl_render = .{ .path = "../../../howl/mods/howl-render" },
-        .howl_text = .{ .path = "../../../howl/mods/howl-text" },
     },
-    .paths = .{ ".zig-audit.json", "README.md", "build.zig", "build.zig.zon", "src", "include", "bindings", "test", "docs" },
+    .paths = .{ ".zig-audit.json", "README.md", "build.zig", "build.zig.zon", "src", "test", "docs" },
 }

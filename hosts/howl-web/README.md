@@ -110,7 +110,7 @@ Server ownership.
 
 
 All live command formats consume Render-owned native command projection through
-the exact Server-forwarded `server_client_render_native` module. Web retains v2
+the exact client-forwarded `server_client_render_native` module. Web retains v2
 object JSON, v3 positional JSON and its v4 binary packing. The v4 record is packed
 field by field: its 64-byte layout differs from Render's 64-byte C record. One
 native record on the stack supplies each command; no additional command array,

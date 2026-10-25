@@ -3,7 +3,7 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const client_dependency = b.dependency("server", .{
+    const client_dependency = b.dependency("server_client", .{
         .target = target,
         .optimize = optimize,
         .bundled_render_text = target.result.os.tag != .linux,

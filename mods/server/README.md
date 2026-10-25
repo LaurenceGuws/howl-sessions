@@ -23,11 +23,11 @@ the optional VT codec; local terminal composition does not import this package.
 
 `server_protocol` owns the bounded control and terminal-interaction wire in
 the independently versioned [Server protocol](../server-protocol) package.
-`server_client` owns the connection/control and
-terminal APIs in [src/client](src/client), with private transport beneath it.
-Server forwards the exact imported protocol module for existing consumers.
-Neither client nor wire-only consumers import the Server model, Instance, PTY
-or live VT.
+The independently versioned [Server client](../server-client) owns
+connection/control and terminal APIs, with its own private transport.
+Server forwards the exact imported protocol module for consumers;
+neither client nor wire-only consumers import the Server model,
+Instance, PTY or live VT.
 
 All connections use one SRVR version 2 envelope. Catalog/CRUD connections stay in
 Server control; each successful attachment dedicates its stream to one exact
@@ -42,18 +42,15 @@ attachment; only explicit close destroys the Instance. UI owns tabs and layout.
 | `server_service` | bounded adopted control streams and exact routing |
 | `server_terminal_service` | bounded adopted terminal streams and observation delivery |
 | `server_protocol` | pure Server wire plus optional VT observation codec |
-| `server_client` | control/attachment/terminal APIs and private transport |
-| `server_client_byte` | caller-driven attachment bytes over opaque caller storage; no allocator or transport |
-| `server_client_native` | optional native VT request/interaction facts and named replies; Server wire stays private |
-| `server_client_render` | optional client observation adapter to Howl Render |
-| `server_client_render_native` | exact forwarded Render-native module for the same adapter graph; Render owns its schemas and projection |
-| `howl_server_client` artifact | versioned C client ABI and artifact-owned public header |
+| `server-client` dependency (integration tests only) | real-client fixtures and foreign-C proofs; not linked into the Server runtime |
 
-`zig build check test` proves the complete family, including a foreign C caller
-against a private live Server. `zig build wire` validates its
-wire corpus. The [runtime](docs/runtime.md), [client](docs/client.md),
-[byte client](docs/byte-client.md) and [protocol](../server-protocol/docs/protocol.md) contracts
-describe the selected connection interfaces.
+`zig build check test` proves Server and its integration with the independent
+client, including a foreign C caller against a private live Server.
+`zig build wire` validates its wire corpus. The
+[runtime](docs/runtime.md), [client](../server-client/docs/client.md),
+[byte client](../server-client/docs/byte-client.md) and
+[protocol](../server-protocol/docs/protocol.md) contracts describe the
+selected connection interfaces.
 
 ## Control service
 

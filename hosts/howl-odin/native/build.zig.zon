@@ -1,10 +1,10 @@
 .{
     .name = .howl_odin_bridge,
-    .version = "0.1.6-dev",
+    .version = "0.1.7-dev",
     .fingerprint = 0xc6fd145e88a928bf,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
-        .server = .{ .path = "../../../mods/server" },
+        .server_client = .{ .path = "../../../mods/server-client" },
         .howl_instance = .{ .path = "../../../../howl/mods/howl-instance" },
         .howl_render = .{ .path = "../../../../howl/mods/howl-render" },
     },
