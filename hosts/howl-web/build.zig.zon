@@ -1,0 +1,14 @@
+.{
+    .name = .howl_web,
+    .fingerprint = 0x28d101e92b53a474,
+    .version = "0.1.6-dev",
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        .server = .{ .path = "../../mods/server" },
+        .howl_web_text = .{ .path = "text" },
+        .howl_web_render = .{ .path = "render" },
+        .howl_web_gateway = .{ .path = "gateway" },
+        .howl_render = .{ .path = "../../../howl/mods/howl-render" },
+    },
+    .paths = .{ ".zig-audit.json", "build.zig", "build.zig.zon", "src", "tests", "text", "render", "gateway", "README.md" },
+}

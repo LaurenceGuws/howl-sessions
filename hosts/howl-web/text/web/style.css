@@ -1,0 +1,7 @@
+:root { color-scheme: dark; font-family: ui-monospace, monospace; background: #0c1218; color: #dcece7; }
+main { max-width: 56rem; margin: 2rem auto; padding: 0 1rem; }
+p { line-height: 1.5; }
+canvas { width: min(100%, 640px); image-rendering: pixelated; border: 1px solid #49615c; }
+button { font: inherit; padding: .7rem 1rem; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .9rem; }
+#status { color: #aff5dc; }

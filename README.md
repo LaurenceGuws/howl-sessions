@@ -8,7 +8,7 @@ Howl's orchestration and application product family.
 
 ## Extraction checkpoint
 
-Server and CLI have been copied from Howl commit
+Server, CLI, Web and Odin have been copied from Howl commit
 `73c529b7e356f27e709e44e05928bb44ca2bcb2e` with no application behavior
 change. The original checkout remains the behavioral reference and is not
 deleted. The copied packages temporarily resolve Howl core through the
@@ -20,5 +20,5 @@ plus one root audit of all Git-owned Zig source; the installed zig-audit
 currently refuses nested Git configuration roots.
 
 Next: independently pinned Howl package releases, finer protocol/client
-release roots, Web/Odin extraction, fresh Flutter host, and explicit C/Dart
+release roots, fresh Flutter host, and explicit C/Dart
 foreign-interface ownership. Network follow/streaming is a later experiment.

@@ -1,0 +1,12 @@
+.{
+    .name = .howl_odin_bridge,
+    .version = "0.1.6-dev",
+    .fingerprint = 0xc6fd145e88a928bf,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        .server = .{ .path = "../../../mods/server" },
+        .howl_instance = .{ .path = "../../../../howl/mods/howl-instance" },
+        .howl_render = .{ .path = "../../../../howl/mods/howl-render" },
+    },
+    .paths = .{ ".zig-audit.json", "build.zig", "build.zig.zon", "bridge.zig" },
+}

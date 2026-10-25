@@ -6,6 +6,8 @@
     .dependencies = .{
         .server = .{ .path = "mods/server" },
         .howl_cli = .{ .path = "hosts/howl-cli" },
+        .howl_web = .{ .path = "hosts/howl-web" },
+        .howl_odin = .{ .path = "hosts/howl-odin/native" },
     },
     .paths = .{
         "AGENTS.md",

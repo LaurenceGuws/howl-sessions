@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Howl Web</title>
+<meta name="theme-color" content="#0c1218">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <header>
+    <h1>Howl Web <small id="generation">v41-retina</small></h1>
+    <p id="status">Booting shared renderer…</p>
+  </header>
+  <canvas id="terminal" width="1" height="1" tabindex="0" aria-label="Howl terminal. Tap to open the keyboard."></canvas>
+  <div id="selection-overlay" aria-hidden="true"></div>
+  <div id="toolbar" role="toolbar" aria-label="Terminal controls">
+    <button type="button" data-modifier="control" aria-pressed="false">Ctrl</button>
+    <button type="button" data-modifier="alt" aria-pressed="false">Alt</button>
+    <button type="button" data-key="Escape">Esc</button>
+    <button type="button" data-key="Tab">Tab</button>
+    <button type="button" data-key="ArrowLeft">←</button>
+    <button type="button" data-key="ArrowDown">↓</button>
+    <button type="button" data-key="ArrowUp">↑</button>
+    <button type="button" data-key="ArrowRight">→</button>
+    <button id="keyboard-button" type="button">Keyboard</button>
+    <button id="zoom-button" type="button">16px</button>
+    <button id="leader-button" type="button">Lead</button>
+    <button id="copy-button" type="button">Copy</button>
+    <button id="paste-button" type="button">Paste</button>
+    <button id="reconnect" type="button">Reconnect</button>
+    <button id="reload" type="button">Reload</button>
+  </div>
+  <textarea id="keyboard" class="ime-sink" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" inputmode="text" aria-label="Terminal keyboard capture"></textarea>
+  <details>
+    <summary>Canary facts</summary>
+    <pre id="facts"></pre>
+  </details>
+  <details id="telemetry-panel">
+    <summary>Telemetry</summary>
+    <div class="telemetry-actions">
+      <button id="telemetry-summary-copy" type="button">Copy Summary</button>
+      <button id="telemetry-copy" type="button">Copy Full</button>
+      <button id="telemetry-clear" type="button">Clear</button>
+    </div>
+    <pre id="telemetry-log"></pre>
+  </details>
+  <p class="note">The serving node retains the canonical PTY and VT. Browser input is semantic Howl input, not JavaScript terminal escape encoding. Telemetry is a bounded client-local metadata log and never records terminal text. <a href="/font-licences.txt">Font licences</a> · <a href="/nerd-font-license.txt">Nerd font licence</a> · <a href="/dependencies.txt">Text dependencies</a></p>
+</main>
+<script type="module" src="host.mjs"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "name": "Howl Web",
+  "short_name": "Howl",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0c1218",
+  "theme_color": "#0c1218",
+  "icons": [
+    {"src": "/icon.png", "sizes": "180x180", "type": "image/png"}
+  ]
+}

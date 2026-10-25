@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; object-src 'none'; base-uri 'none'">
+<title>Howl shared text canary</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+<h1>Howl shared text canary</h1>
+<p>Real FreeType and HarfBuzz through the tracked Zig text module. Canvas displays returned alpha masks, not browser-shaped text.</p>
+<p id="status" role="status">Loading the native text engine…</p>
+<canvas id="glyphs" width="320" height="100" aria-label="Native glyph masks for ffi, accented e, and Greek lambda"></canvas>
+<p><button id="repeat" type="button" disabled>Rebuild font and rasterize again</button></p>
+<pre id="proof"></pre>
+<p>Local proof only. This is not yet the complete Howl terminal renderer or an installed PWA.</p>
+<p><a href="dependencies.txt">Text dependency notices</a> · <a href="font-licences.txt">Local fixture licences</a></p>
+</main>
+<script type="module" src="host.mjs"></script>
+</body>
+</html>

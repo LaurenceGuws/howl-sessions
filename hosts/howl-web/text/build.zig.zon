@@ -1,0 +1,10 @@
+.{
+    .name = .howl_web_text,
+    .fingerprint = 0x2ac0e4bab953b8de,
+    .version = "0.1.6-dev",
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        .howl_text = .{ .path = "../../../../howl/mods/howl-text" },
+    },
+    .paths = .{ ".zig-audit.json", "build.zig", "build.zig.zon", "probe.zig", "tests", "web" },
+}

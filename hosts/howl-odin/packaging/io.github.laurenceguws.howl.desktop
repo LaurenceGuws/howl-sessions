@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Howl
+GenericName=Terminal Emulator
+Comment=Fast terminal client for Howl Sessions
+Exec=howl-odin
+Icon=io.github.laurenceguws.howl
+Terminal=false
+Categories=System;TerminalEmulator;
+Keywords=terminal;shell;console;
+StartupWMClass=io.github.laurenceguws.howl

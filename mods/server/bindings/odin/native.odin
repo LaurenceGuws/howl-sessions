@@ -1,6 +1,6 @@
 package server_native
 
-import vt_native "../../../howl-vt/bindings/odin"
+import vt_native "../../../../../howl/mods/howl-vt/bindings/odin"
 
 // The transport owner adds authority; terminal fields remain VT-owned.
 Request_Info :: struct {
