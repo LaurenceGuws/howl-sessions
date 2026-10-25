@@ -196,6 +196,14 @@ final class _SessionBrowserState extends State<SessionBrowser> {
       }),
     );
     final instance = InstanceView(
+      key: ValueKey((
+        widget.selectedEndpoint,
+        _tree?.serverId,
+        _selectedSession?.id,
+        _selectedInstance?.id,
+      )),
+      endpoint: widget.selectedEndpoint,
+      serverId: _tree?.serverId,
       session: _selectedSession,
       instance: _selectedInstance,
       onClose: _closeInstance,

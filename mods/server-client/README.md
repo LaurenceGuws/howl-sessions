@@ -12,7 +12,7 @@ No production client module imports the Server model or a live Instance.
 | `server_client_render` | Optional conversion of client observations for Howl Render |
 | `server_client_render_native` | Exact Render-owned native module, forwarded unchanged |
 | `howl_server_client` | Static C ABI by default, optional shared ABI (`-Dshared-abi=true`) |
-| `bindings/dart` | Dart FFI for catalog and CRUD, retaining full unsigned u64 identities |
+| `bindings/dart` | Dart FFI for catalog/CRUD and dedicated native terminal attachments, retaining full unsigned u64 identities |
 
 `server_protocol` is the independently versioned wire contract.
 Transport, control and terminal owner modules are shared only with the
@@ -35,4 +35,11 @@ struct layouts and handle cleanup; Flutter sees immutable copies and makes
 blocking management requests on worker isolates. The installed header is the
 single authority, and the [Dart live canary](bindings/dart/tool/catalog_canary.dart)
 checks real Session and Instance create/observe/close against an explicit
-development Server. Terminal attachments remain distinct from catalog CRUD.
+development Server. A separate [attachment canary](bindings/dart/tool/attachment_canary.dart)
+owns one dedicated connection, observes immutable text, sends input and proves
+advancing revisions and resize before release. The independent
+[`u64` boundary canary](bindings/dart/tool/native_identity_canary.dart) verifies
+lossless C/Dart identities through the signed-bit boundary and full unsigned
+range. The public Flutter text preview deliberately
+opens and closes one attachment per refresh; it is not a streaming renderer.
+Terminal attachments remain distinct from catalog CRUD.

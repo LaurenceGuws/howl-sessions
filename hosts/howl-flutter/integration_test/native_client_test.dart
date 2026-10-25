@@ -56,6 +56,19 @@ void main() {
         ),
         isTrue,
       );
+      final preview = await client.readTextPreview(
+        endpoint,
+        before.serverId,
+        sessionId,
+        instanceId,
+      );
+      expect(preview.serverId, before.serverId);
+      expect(preview.sessionId, sessionId);
+      expect(preview.instanceId, instanceId);
+      expect(preview.clientId, greaterThan(BigInt.zero));
+      expect(preview.rows, 24);
+      expect(preview.columns, 80);
+      expect(preview.lines, hasLength(24));
     } finally {
       if (instanceId != null) {
         await client.closeInstance(endpoint, sessionId, instanceId);

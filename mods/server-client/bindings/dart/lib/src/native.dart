@@ -1,26 +1,15 @@
 import 'dart:convert';
 import 'dart:ffi';
-import 'dart:io';
 
 import 'package:ffi/ffi.dart';
 
 import 'catalog.dart';
 import 'launch.dart';
+import 'native_identity.dart';
+import 'native_library.dart';
 
 const _abiVersion = 1;
 const _ok = 0;
-final _maximumIdentity = BigInt.parse('18446744073709551615');
-
-// Dart VM ints are signed 64-bit; C identities are unsigned u64.
-// Keep identities lossless and round-trip raw low bits only at the FFI boundary.
-BigInt _identity(int raw) => BigInt.from(raw).toUnsigned(64);
-
-int _rawIdentity(BigInt identity) {
-  if (identity <= BigInt.zero || identity > _maximumIdentity) {
-    throw ArgumentError.value(identity, 'identity', 'must fit nonzero u64');
-  }
-  return identity.toInt();
-}
 
 void _validateGeometry(InstanceLaunch launch) {
   for (final cells in [launch.rows, launch.columns, launch.historyRows]) {
@@ -208,17 +197,7 @@ final class _Abi {
   final _CloseInstanceDart closeInstance;
 
   static _Abi load() {
-    if (Platform.isIOS) return _Abi(DynamicLibrary.process());
-    final configured = Platform.environment['HOWL_SERVER_CLIENT_LIBRARY'];
-    if (configured != null && configured.isNotEmpty) {
-      return _Abi(DynamicLibrary.open(configured));
-    }
-    if (Platform.isAndroid) {
-      return _Abi(DynamicLibrary.open('libhowl_server_client.so'));
-    }
-    // Flutter's Linux bundle puts host-owned native assets beside the runner.
-    final bundle = File(Platform.resolvedExecutable).parent.path;
-    return _Abi(DynamicLibrary.open('$bundle/lib/libhowl_server_client.so'));
+    return _Abi(openServerClientLibrary());
   }
 }
 
@@ -246,22 +225,22 @@ final class NativeServerClient {
             _check('instance', _abi.instance(snapshot.value, s, i, instance));
             instances.add(
               InstanceEntry(
-                id: _identity(instance.ref.id),
+                id: fromNativeIdentity(instance.ref.id),
                 running: instance.ref.state == 1,
               ),
             );
           }
           sessions.add(
             SessionEntry(
-              id: _identity(session.ref.id),
+              id: fromNativeIdentity(session.ref.id),
               name: name,
               instances: List.unmodifiable(instances),
             ),
           );
         }
         return SessionTree(
-          serverId: _identity(status.ref.serverId),
-          revision: _identity(status.ref.revision),
+          serverId: fromNativeIdentity(status.ref.serverId),
+          revision: fromNativeIdentity(status.ref.revision),
           sessionCapacity: status.ref.sessionCapacity,
           instancesPerSession: status.ref.instancesPerSession,
           sessions: List.unmodifiable(sessions),
@@ -288,7 +267,7 @@ final class NativeServerClient {
             'create session',
             _abi.create(control, nameBuffer, nameBytes.length, identity),
           );
-          return _identity(identity.value);
+          return fromNativeIdentity(identity.value);
         } finally {
           calloc.free(identity);
           calloc.free(nameBuffer);
@@ -299,7 +278,7 @@ final class NativeServerClient {
     endpoint,
     (control) => _check(
       'close session',
-      _abi.closeSession(control, _rawIdentity(sessionId)),
+      _abi.closeSession(control, toNativeIdentity(sessionId)),
     ),
   );
 
@@ -329,7 +308,7 @@ final class NativeServerClient {
             cwd.asTypedList(cwdBytes.length).setAll(0, cwdBytes);
           }
           request.ref
-            ..sessionId = _rawIdentity(launch.sessionId)
+            ..sessionId = toNativeIdentity(launch.sessionId)
             ..rows = launch.rows
             ..columns = launch.columns
             ..historyRows = launch.historyRows
@@ -344,7 +323,7 @@ final class NativeServerClient {
             'create instance',
             _abi.createInstance(control, request, identity),
           );
-          return _identity(identity.ref.instanceId);
+          return fromNativeIdentity(identity.ref.instanceId);
         } finally {
           calloc.free(identity);
           calloc.free(request);
@@ -359,8 +338,8 @@ final class NativeServerClient {
         final identity = calloc<_Identity>();
         try {
           identity.ref
-            ..sessionId = _rawIdentity(sessionId)
-            ..instanceId = _rawIdentity(instanceId);
+            ..sessionId = toNativeIdentity(sessionId)
+            ..instanceId = toNativeIdentity(instanceId);
           _check('close instance', _abi.closeInstance(control, identity.ref));
         } finally {
           calloc.free(identity);

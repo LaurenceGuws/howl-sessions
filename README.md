@@ -29,6 +29,8 @@ only boots the app; endpoint preferences, Session tree, Instance selection and
 platform packaging have distinct owners. It uses the Dart bindings owned by
 `mods/server-client`, which invoke the exact C ABI in worker isolates.
 The live catalog and Session/Instance CRUD have an independent native proof.
-The native terminal attachment/render surface is **not yet integrated** into
-this new host, so it is a management canary rather than a terminal release.
-Network follow/streaming remains a later experiment.
+The new Flutter host can display an explicitly refreshed **text-only native
+Instance snapshot**. It attaches via the Server-client C ABI, copies immutable
+terminal facts and releases the connection. This is an ABI/projection canary,
+not a live terminal or a rendering replacement. Dedicated long-lived following,
+terminal input, full cell painting and remote-network benchmarks remain pending.

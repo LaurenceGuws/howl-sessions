@@ -8,10 +8,13 @@ import 'dart:isolate';
 
 import 'src/catalog.dart';
 import 'src/native.dart';
+import 'src/native_attachment.dart';
 import 'src/launch.dart';
+import 'src/terminal_text.dart';
 
 export 'src/catalog.dart';
 export 'src/launch.dart';
+export 'src/terminal_text.dart';
 
 /// The native module owns framing and transport. Flutter schedules requests.
 final class ServerClient {
@@ -36,4 +39,25 @@ final class ServerClient {
   ) => Isolate.run(
     () => NativeServerClient().closeInstance(endpoint, sessionId, instanceId),
   );
+
+  /// One immutable, text-only terminal preview on a short-lived attachment.
+  /// This is a canary; an interactive renderer needs a retained attachment.
+  Future<TerminalTextSnapshot> readTextPreview(
+    String endpoint,
+    BigInt serverId,
+    BigInt sessionId,
+    BigInt instanceId,
+  ) => Isolate.run(() {
+    final attachment = NativeTerminalAttachment.connect(
+      endpoint,
+      serverId,
+      sessionId,
+      instanceId,
+    );
+    try {
+      return attachment.observe();
+    } finally {
+      attachment.close();
+    }
+  });
 }
