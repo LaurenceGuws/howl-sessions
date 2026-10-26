@@ -6,7 +6,7 @@
     .dependencies = .{
         .server_client = .{
             .url = "https://github.com/LaurenceGuws/howl-sessions/releases/download/server-client-v0.1.5-dev.1/server-client-0.1.5-dev.tar.gz",
-            .hash = "server_client-0.1.5-dev-nZtfP82kCAB_uzKLXdwS4-E7NnGv_MRTktkdkMqp3xNB",
+            .hash = "server_client-0.1.5-dev-nZtfP_mkCACLPSL9nK1GLAII_lHbmjunpUF-PQfk5DLa",
         },
         .howl_vt = .{
             .url = "https://github.com/LaurenceGuws/howl/releases/download/howl-vt-v0.1.6-dev.1/howl-vt-0.1.6-dev.tar.gz",
