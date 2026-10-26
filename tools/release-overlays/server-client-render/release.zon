@@ -1,20 +1,20 @@
 .{
     .name = .server_client_render,
-    .version = "0.1.0-dev",
+    .version = "0.1.1-dev",
     .fingerprint = 0x6757ccd51fa1e307,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .server_client = .{
-            .url = "https://github.com/LaurenceGuws/howl-sessions/releases/download/server-client-v0.1.5-dev.1/server-client-0.1.5-dev.tar.gz",
-            .hash = "server_client-0.1.5-dev-nZtfP_mkCACLPSL9nK1GLAII_lHbmjunpUF-PQfk5DLa",
+            .url = "https://github.com/LaurenceGuws/howl-sessions/releases/download/server-client-v0.1.6-dev.1/server-client-0.1.6-dev.tar.gz",
+            .hash = "server_client-0.1.6-dev-nZtfP0qmCAAuwzzlTBhg_zzbtrIJveOfLtqyHmQ2QSu4",
         },
         .howl_vt = .{
-            .url = "https://github.com/LaurenceGuws/howl/releases/download/howl-vt-v0.1.6-dev.1/howl-vt-0.1.6-dev.tar.gz",
-            .hash = "howl_vt-0.1.6-dev-DNIreYs0LgDOt2aL3rgdPt-7HMXb_TcbBDtqWW5zYxTS",
+            .url = "https://github.com/LaurenceGuws/howl/releases/download/howl-vt-v0.1.7-dev.1/howl-vt-0.1.7-dev.tar.gz",
+            .hash = "howl_vt-0.1.7-dev-DNIreY01LgDPkubfmIKIaZ4X668Kpxi-KQ8ftEjKeqPC",
         },
         .howl_render = .{
-            .url = "https://github.com/LaurenceGuws/howl/releases/download/howl-render-v0.1.9-dev.1/howl-render-0.1.9-dev.tar.gz",
-            .hash = "howl_render-0.1.9-dev-4E3u4_sxBwD1DNHtoJLK-mhsVds5Pd-VqeyUzeUe_luX",
+            .url = "https://github.com/LaurenceGuws/howl/releases/download/howl-render-v0.1.10-dev.1/howl-render-0.1.10-dev.tar.gz",
+            .hash = "howl_render-0.1.10-dev-4E3u4ycyBwCvzDPZvmNqex1EKiSnRfjoNARTPn4Vp0YO",
         },
         .howl_text = .{
             .url = "https://github.com/LaurenceGuws/howl/releases/download/howl-text-v0.1.6-dev.3/howl-text-0.1.6-dev.tar.gz",
