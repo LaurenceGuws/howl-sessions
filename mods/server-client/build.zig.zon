@@ -10,5 +10,5 @@
             .hash = "howl_vt-0.1.6-dev-DNIreYs0LgDOt2aL3rgdPt-7HMXb_TcbBDtqWW5zYxTS",
         },
     },
-    .paths = .{ ".zig-audit.json", "README.md", "build.zig", "build.zig.zon", "src", "include", "bindings", "docs", "test" },
+    .paths = .{ ".gitignore", ".zig-audit.json", "README.md", "build.zig", "build.zig.zon", "src", "include", "bindings", "docs", "test" },
 }

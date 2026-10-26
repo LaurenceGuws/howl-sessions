@@ -10,6 +10,7 @@
         },
     },
     .paths = .{
+        ".gitignore",
         ".zig-audit.json",
         "README.md",
         "build.zig",
