@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Archive one tracked package at one exact commit. Released packages never
+# depend on sibling paths from the source workspace.
+set -euo pipefail
+
+if [[ $# -ne 3 ]]; then
+  printf 'usage: package-release {server-protocol|server-client|server-client-render} COMMIT OUTPUT_DIRECTORY\n' >&2
+  exit 2
+fi
+
+module=$1
+revision=$2
+output_dir=$3
+case "$module" in
+  server-protocol|server-client|server-client-render) ;;
+  *) printf 'unknown package: %s\n' "$module" >&2; exit 2 ;;
+esac
+repo_root=$(git -C "$(dirname "$0")/.." rev-parse --show-toplevel)
+revision=$(git -C "$repo_root" rev-parse --verify "$revision^{commit}")
+manifest=$(git -C "$repo_root" show "$revision:mods/$module/build.zig.zon")
+version=$(printf '%s\n' "$manifest" | sed -n 's/^[[:space:]]*\.version = "\([^"]*\)".*/\1/p')
+fingerprint=$(printf '%s\n' "$manifest" | sed -n 's/^[[:space:]]*\.fingerprint = \([^,]*\),.*/\1/p')
+[[ -n "$version" && -n "$fingerprint" ]] || { printf 'missing package identity: %s\n' "$module" >&2; exit 1; }
+
+mkdir -p "$output_dir"
+output_dir=$(cd "$output_dir" && pwd -P)
+destination="$output_dir/$module-$version.tar.gz"
+[[ ! -e "$destination" ]] || { printf 'refusing overwrite: %s\n' "$destination" >&2; exit 1; }
+candidate=$(mktemp "$output_dir/.$module.XXXXXXXX.tar.gz")
+stage=$(mktemp -d "$output_dir/.$module.XXXXXXXX")
+cleanup() {
+  rm -rf -- "$stage"
+  if [[ -e "$candidate" ]]; then rm -f -- "$candidate"; fi
+}
+trap cleanup EXIT
+
+git -C "$repo_root" archive "$revision:mods/$module" | tar -xf - -C "$stage"
+if [[ "$module" != server-protocol ]]; then
+  overlay="tools/release-overlays/$module/release.zon"
+  git -C "$repo_root" show "$revision:$overlay" > "$stage/build.zig.zon"
+  overlay_version=$(sed -n 's/^[[:space:]]*\.version = "\([^"]*\)".*/\1/p' "$stage/build.zig.zon")
+  overlay_fingerprint=$(sed -n 's/^[[:space:]]*\.fingerprint = \([^,]*\),.*/\1/p' "$stage/build.zig.zon")
+  if [[ "$version" != "$overlay_version" || "$fingerprint" != "$overlay_fingerprint" ]]; then
+    printf 'release identity differs from source: %s\n' "$module" >&2
+    exit 1
+  fi
+fi
+if rg -q 'REPLACE_WITH_|\.path = "\.\./' "$stage/build.zig.zon"; then
+  printf 'unresolved release dependency: %s\n' "$module" >&2
+  exit 1
+fi
+tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner -cf - -C "$stage" . | gzip -n -9 > "$candidate"
+hash=$(zig fetch "$candidate")
+mv -- "$candidate" "$destination"
+printf '%s %s %s\n' "$revision" "$module" "$version"
+printf 'zig: %s\n' "$hash"
+sha256sum "$destination"
