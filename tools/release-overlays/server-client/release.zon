@@ -1,16 +1,16 @@
 .{
     .name = .server_client,
-    .version = "0.1.5-dev",
+    .version = "0.1.6-dev",
     .fingerprint = 0xbe383d933f5f9b9d,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .server_protocol = .{
-            .url = "https://github.com/LaurenceGuws/howl-sessions/releases/download/server-protocol-v0.1.0-dev.1/server-protocol-0.1.0-dev.tar.gz",
-            .hash = "server_protocol-0.1.0-dev-H-Y6wQzwBADjQ7Mjm3SXcUX3rfWgpm0wpARikZWaCtTx",
+            .url = "https://github.com/LaurenceGuws/howl-sessions/releases/download/server-protocol-v0.1.1-dev.1/server-protocol-0.1.1-dev.tar.gz",
+            .hash = "server_protocol-0.1.1-dev-H-Y6wZjnCAC4oxa3ERB_OJ-nyEKdooTkGdJ9u2iemMMI",
         },
         .howl_vt = .{
-            .url = "https://github.com/LaurenceGuws/howl/releases/download/howl-vt-v0.1.6-dev.1/howl-vt-0.1.6-dev.tar.gz",
-            .hash = "howl_vt-0.1.6-dev-DNIreYs0LgDOt2aL3rgdPt-7HMXb_TcbBDtqWW5zYxTS",
+            .url = "https://github.com/LaurenceGuws/howl/releases/download/howl-vt-v0.1.7-dev.1/howl-vt-0.1.7-dev.tar.gz",
+            .hash = "howl_vt-0.1.7-dev-DNIreY01LgDPkubfmIKIaZ4X668Kpxi-KQ8ftEjKeqPC",
         },
     },
     .paths = .{ ".gitignore", ".zig-audit.json", "README.md", "build.zig", "build.zig.zon", "src", "include", "bindings", "docs", "test" },
