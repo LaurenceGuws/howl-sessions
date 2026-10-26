@@ -1,6 +1,6 @@
 .{
     .name = .howl_web_render,
-    .version = "0.1.8-dev",
+    .version = "0.1.9-dev",
     .fingerprint = 0xe1189fb0b1fd9b10,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
@@ -9,8 +9,8 @@
         .server_protocol = .{ .path = "../../../mods/server-protocol" },
         .howl_web_text = .{ .path = "../text" },
         .howl_render = .{
-            .url = "https://github.com/LaurenceGuws/howl/releases/download/howl-render-v0.1.9-dev.1/howl-render-0.1.9-dev.tar.gz",
-            .hash = "howl_render-0.1.9-dev-4E3u4_sxBwD1DNHtoJLK-mhsVds5Pd-VqeyUzeUe_luX",
+            .url = "https://github.com/LaurenceGuws/howl/releases/download/howl-render-v0.1.10-dev.1/howl-render-0.1.10-dev.tar.gz",
+            .hash = "howl_render-0.1.10-dev-4E3u4ycyBwCvzDPZvmNqex1EKiSnRfjoNARTPn4Vp0YO",
         },
         .howl_text = .{
             .url = "https://github.com/LaurenceGuws/howl/releases/download/howl-text-v0.1.6-dev.3/howl-text-0.1.6-dev.tar.gz",

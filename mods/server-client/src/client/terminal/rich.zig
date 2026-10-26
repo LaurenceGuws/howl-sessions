@@ -1,12 +1,12 @@
-//! Server-framed observations over VT-owned terminal text values.
+//! Server-framed observations over canonical VT terminal facts.
 //!
 //! Server framing, request correlation, lifecycle and authority stay here.
-//! The optional VT codec owns text decoding and retained rows, scalars and links;
-//! this receiver chooses no renderer, CLI schema, font or platform presentation.
+//! The protocol codec owns decoded values; this Client retains rows, scalars and
+//! links. Neither a second terminal grid nor presentation policy belongs here.
 
 const std = @import("std");
 const protocol = @import("server_protocol").terminal;
-const codec = @import("howl_vt_codec");
+const codec = @import("terminal_observation_codec");
 const decodeGraphics = codec.decoded.decodeGraphics;
 const deinitRows = codec.decoded.deinitRows;
 const client = @import("terminal_owner");
@@ -20,17 +20,17 @@ pub const Error = client.Error || std.mem.Allocator.Error || protocol.PayloadErr
     DeltaBaselineMismatch,
 };
 
-/// VT-owned lossless observation value.
+/// Protocol-owned lossless observation value.
 pub const Rgba = codec.Rgba;
-/// VT-owned lossless observation value.
+/// Protocol-owned lossless observation value.
 pub const Presentation = codec.Presentation;
-/// VT-owned lossless observation value.
+/// Protocol-owned lossless observation value.
 pub const Cell = codec.Cell;
-/// VT-owned lossless observation value.
+/// Protocol-owned lossless observation value.
 pub const Row = codec.Row;
-/// VT-owned lossless observation value.
+/// Protocol-owned lossless observation value.
 pub const Hyperlink = codec.Hyperlink;
-/// VT-owned lossless observation value.
+/// Protocol-owned lossless observation value.
 pub const Graphics = codec.Graphics;
 
 /// Owns one complete lossless rich terminal snapshot.

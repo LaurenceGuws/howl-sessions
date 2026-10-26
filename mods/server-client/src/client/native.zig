@@ -5,7 +5,7 @@ const client = @import("server_client");
 const terminal = client.terminal;
 const protocol = terminal.protocol;
 const owner = @import("terminal_owner");
-const vt_codec = @import("howl_vt_codec");
+const clipboard_grammar = @import("vt_clipboard_grammar");
 /// Exact owned C declarations shared with the native artifact.
 pub const c = @import("native_abi_types");
 /// Native snapshot queries and independently owned text/cache capabilities.
@@ -51,7 +51,7 @@ pub fn describeRequest(snapshot: *const terminal.consequences.Snapshot, output: 
             const operation = std.enums.fromInt(protocol.ConsequenceClipboardKind, metadata[1]).?;
             switch (family) {
                 .osc52 => {
-                    const parsed = vt_codec.parseClipboardRequest(snapshot.payload) orelse return error.InvalidSnapshot;
+                    const parsed = clipboard_grammar.parse(snapshot.payload) orelse return error.InvalidSnapshot;
                     if (parsed.selection.len != metadata[2] or !std.mem.eql(u8, parsed.selection, metadata[4..][0..metadata[2]])) return error.InvalidSnapshot;
                     const expected: protocol.ConsequenceClipboardKind = switch (parsed.kind) {
                         .set => .set,

@@ -1,7 +1,7 @@
 .{
     .name = .howl_web,
     .fingerprint = 0x28d101e92b53a474,
-    .version = "0.1.7-dev",
+    .version = "0.1.8-dev",
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .server_client = .{ .path = "../../mods/server-client" },
@@ -10,8 +10,8 @@
         .howl_web_render = .{ .path = "render" },
         .howl_web_gateway = .{ .path = "gateway" },
         .howl_render = .{
-            .url = "https://github.com/LaurenceGuws/howl/releases/download/howl-render-v0.1.9-dev.1/howl-render-0.1.9-dev.tar.gz",
-            .hash = "howl_render-0.1.9-dev-4E3u4_sxBwD1DNHtoJLK-mhsVds5Pd-VqeyUzeUe_luX",
+            .url = "https://github.com/LaurenceGuws/howl/releases/download/howl-render-v0.1.10-dev.1/howl-render-0.1.10-dev.tar.gz",
+            .hash = "howl_render-0.1.10-dev-4E3u4ycyBwCvzDPZvmNqex1EKiSnRfjoNARTPn4Vp0YO",
         },
     },
     .paths = .{ ".zig-audit.json", "build.zig", "build.zig.zon", "src", "tests", "text", "render", "gateway", "README.md" },

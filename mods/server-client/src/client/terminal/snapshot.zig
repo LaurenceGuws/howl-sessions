@@ -1,6 +1,6 @@
 //! Compact reasoning-friendly projection over the lossless native rich snapshot.
 //!
-//! rich.zig receives Server observations through the optional VT codec.
+//! rich.zig receives Server observations through the protocol-owned codec.
 //! This module projects validated terminal facts without parsing wire bytes.
 
 const std = @import("std");

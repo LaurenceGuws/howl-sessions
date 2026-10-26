@@ -1,6 +1,6 @@
 .{
     .name = .server,
-    .version = "0.1.8-dev",
+    .version = "0.1.9-dev",
     .fingerprint = 0x5a6dd5f6aaf8b115,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
@@ -8,12 +8,8 @@
         // Integration tests use the released client, never a Server-owned client.
         .server_client = .{ .path = "../server-client" },
         .howl_instance = .{
-            .url = "https://github.com/LaurenceGuws/howl/releases/download/howl-instance-v0.1.7-dev.1/howl-instance-0.1.7-dev.tar.gz",
-            .hash = "howl_instance-0.1.7-dev-3kR6wSj8BgA32iVuGlLDUsU6BP-WHdy44OAzKA8dAlBO",
-        },
-        .howl_vt = .{
-            .url = "https://github.com/LaurenceGuws/howl/releases/download/howl-vt-v0.1.6-dev.1/howl-vt-0.1.6-dev.tar.gz",
-            .hash = "howl_vt-0.1.6-dev-DNIreYs0LgDOt2aL3rgdPt-7HMXb_TcbBDtqWW5zYxTS",
+            .url = "https://github.com/LaurenceGuws/howl/releases/download/howl-instance-v0.1.8-dev.1/howl-instance-0.1.8-dev.tar.gz",
+            .hash = "howl_instance-0.1.8-dev-3kR6wU78BgDnokhYMOKUoW33LNG21tw0l25E4_paPYPe",
         },
     },
     .paths = .{ ".zig-audit.json", "README.md", "build.zig", "build.zig.zon", "src", "test", "docs" },

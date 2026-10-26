@@ -6,9 +6,10 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const shared_abi = b.option(bool, "shared-abi", "Install the client C ABI as a shared library for dynamic hosts") orelse false;
     const windows = target.result.os.tag == .windows;
-    const protocol = b.dependency("server_protocol", .{ .target = target, .optimize = optimize }).module("server_protocol");
+    const protocol_owner = b.dependency("server_protocol", .{ .target = target, .optimize = optimize });
+    const protocol = protocol_owner.module("server_protocol");
     const vt = b.dependency("howl_vt", .{ .target = target, .optimize = optimize });
-    const codec = vt.module("howl_vt_codec");
+    const codec = protocol_owner.module("terminal_observation_codec");
 
     const byte_client = b.addModule("server_client_byte", .{
         .root_source_file = b.path("src/client/terminal/byte.zig"),
@@ -40,7 +41,7 @@ pub fn build(b: *std.Build) void {
     });
     terminal.addImport("server_protocol", protocol);
     terminal.addImport("server_client_byte", byte_client);
-    terminal.addImport("howl_vt_codec", codec);
+    terminal.addImport("terminal_observation_codec", codec);
     terminal.addImport("terminal_owner", terminal_owner);
     const control_owner = b.addModule("control_owner", .{
         .root_source_file = b.path("src/client/control.zig"),
@@ -74,7 +75,9 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     native.addImport("server_client", client);
-    native.addImport("howl_vt_codec", codec);
+    // Validate OSC 52 using the exact grammar used by canonical VT. Server
+    // metadata may not substitute for syntax validity or introduce a fork.
+    native.addImport("vt_clipboard_grammar", vt.module("vt_clipboard_grammar"));
     native.addImport("native_abi_types", native_types);
     native.addImport("terminal_owner", terminal_owner);
     // Exact-composition hosts can link this source into one native library.

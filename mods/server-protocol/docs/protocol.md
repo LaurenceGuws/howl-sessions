@@ -1,8 +1,9 @@
 # Server wire
 
 The optional server_protocol module owns one bounded SRVR version 2 envelope for
-Server control and dedicated Instance interaction. It imports the pure
-howl_vt_codec grammar; it imports no live VT parser, Instance, PTY, renderer,
+Server control and dedicated Instance interaction. It also publishes the pure
+terminal_observation_codec module for observation carriage and validation;
+neither wire nor codec imports a live VT parser, Instance, PTY, renderer,
 transport, listener, authentication or lifecycle owner.
 
 Control covers Server status/tree observation, Session and Instance CRUD, and
@@ -23,7 +24,7 @@ reserved bytes and a big-endian u32 payload length. Control kinds are 1–13 wit
 64 KiB request ceiling. Each phase rejects the other's tags before payload
 admission. Old SRVR version 1 and HWLS version 10 are rejected.
 
-[Terminal wire reference](terminal-wire.md) documents the retained VT observation,
+[Terminal wire reference](terminal-wire.md) documents the borrowed VT observation,
 input, image, property and consequence payloads. Their semantic codec grammar is
 unchanged; Server owns delivery envelopes, revisions and predecessor correlation.
 [Language-neutral vectors](../protocol/vectors.json) cover common framing, ready

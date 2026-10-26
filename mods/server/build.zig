@@ -4,11 +4,11 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const vt = b.dependency("howl_vt", .{ .target = target, .optimize = optimize });
-    const codec = vt.module("howl_vt_codec");
-    const instance = b.dependency("howl_instance", .{ .target = target, .optimize = optimize }).module("howl_instance_headless");
+    const instance_owner = b.dependency("howl_instance", .{ .target = target, .optimize = optimize });
+    const instance = instance_owner.module("howl_instance_headless");
     const wire_owner = b.dependency("server_protocol", .{ .target = target, .optimize = optimize });
     const protocol = wire_owner.module("server_protocol");
+    const codec = wire_owner.module("terminal_observation_codec");
     // Existing consumers retain the same protocol package identity.
     // zig-audit: acknowledge panic
     // reason: Build graph allocation failure cannot be recovered while forwarding a module.
@@ -21,7 +21,7 @@ pub fn build(b: *std.Build) void {
     });
     terminal_service.addImport("howl_instance", instance);
     terminal_service.addImport("server_protocol", protocol);
-    terminal_service.addImport("howl_vt_codec", codec);
+    terminal_service.addImport("terminal_observation_codec", codec);
     const model = b.addModule("server", .{
         .root_source_file = b.path("src/server.zig"),
         .target = target,
@@ -76,6 +76,19 @@ pub fn build(b: *std.Build) void {
         check.dependOn(&artifact.step);
         tests.dependOn(&b.addRunArtifact(artifact).step);
     }
+
+    // Only Server specializes the portable codec on a live Instance's VT.
+    // Use Instance's forwarded VT module to preserve exact nominal identity.
+    const encoder_root = b.createModule(.{
+        .root_source_file = b.path("test/observation_encoder.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    encoder_root.addImport("howl_vt", instance_owner.module("howl_vt"));
+    encoder_root.addImport("terminal_observation_codec", codec);
+    const encoder_test = b.addTest(.{ .name = "server-observation-encoder", .root_module = encoder_root, .use_llvm = false, .use_lld = false });
+    check.dependOn(&encoder_test.step);
+    tests.dependOn(&b.addRunArtifact(encoder_test).step);
 
     // Integration is a consumer of server_client, never part of Server itself.
     // Client has no dependency on Server, including its tests.

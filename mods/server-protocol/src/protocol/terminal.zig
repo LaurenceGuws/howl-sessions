@@ -15,7 +15,7 @@
 
 const std = @import("std");
 const framing = @import("framing.zig");
-const codec = @import("howl_vt_codec");
+const codec = @import("terminal_observation_codec");
 
 /// Bounded complete terminal-property payload grammar.
 pub const properties = codec.properties;
@@ -606,7 +606,7 @@ pub const ImageEnd = struct {
 pub const SnapshotBegin = struct {
     /// Endpoint observation revision covering VT, lifecycle, and authority state.
     revision: u64,
-    /// Terminal-only facts owned and encoded by the optional VT codec.
+    /// Canonical terminal facts encoded by Protocol without advancing the VT.
     terminal: codec.Metadata,
     stream_closed: bool,
     child_exited: bool,
@@ -832,7 +832,7 @@ pub fn decodeSnapshotBegin(input: []const u8) PayloadError!SnapshotBegin {
     };
 }
 
-/// Payload validation/packing is owned by the optional VT codec.
+/// Payload validation/packing is owned by Protocol, not the live VT.
 pub const TextPackError = codec.TextPackError;
 /// Encodes one self-delimiting `text_v1` record header.
 pub const encodeTextRecordHeader = codec.encodeTextRecordHeader;

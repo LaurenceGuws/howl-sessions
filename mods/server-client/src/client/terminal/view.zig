@@ -4,7 +4,7 @@
 const std = @import("std");
 const protocol = @import("server_protocol").terminal;
 const rich = @import("rich.zig");
-const codec = @import("howl_vt_codec");
+const codec = @import("terminal_observation_codec");
 const terminal_view = codec.view;
 
 /// Allocation or malformed/bounded Server observation projection.

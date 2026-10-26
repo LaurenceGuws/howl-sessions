@@ -3,22 +3,22 @@
   "version": "0.1.0-dev",
   "zig": "0.17.0",
   "source": {
-    "howl": "73c529b7e356f27e709e44e05928bb44ca2bcb2e",
-    "core_release": "2c9cd71453a3156658016ae6f24a5f81711a3df1"
+    "howl": "1199410ee47d6fc3ffadae57e9f60416d3fb2091",
+    "core_release": "1199410ee47d6fc3ffadae57e9f60416d3fb2091"
   },
   "packages": {
-    "mods/server": "0.1.8-dev",
-    "mods/server-protocol": "0.1.0-dev",
-    "mods/server-client": "0.1.5-dev",
-    "mods/server-client-render": "0.1.0-dev",
+    "mods/server": "0.1.9-dev",
+    "mods/server-protocol": "0.1.1-dev",
+    "mods/server-client": "0.1.6-dev",
+    "mods/server-client-render": "0.1.1-dev",
     "hosts/howl-cli": "0.1.7-dev",
-    "hosts/howl-web": "0.1.7-dev",
+    "hosts/howl-web": "0.1.8-dev",
     "hosts/howl-web/text": "0.1.6-dev",
-    "hosts/howl-web/render": "0.1.8-dev",
+    "hosts/howl-web/render": "0.1.9-dev",
     "hosts/howl-web/gateway": "0.1.7-dev",
     "hosts/howl-odin": "0.1.0-dev",
     "hosts/howl-flutter": "0.1.4-dev",
-    "hosts/howl-odin/native": "0.1.9-dev"
+    "hosts/howl-odin/native": "0.1.10-dev"
   },
   "status": "pinned-core"
 }

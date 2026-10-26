@@ -1,14 +1,9 @@
 .{
     .name = .server_protocol,
-    .version = "0.1.0-dev",
+    .version = "0.1.1-dev",
     .fingerprint = 0x0a653df0c13ae61f,
     .minimum_zig_version = "0.17.0",
-    .dependencies = .{
-        .howl_vt = .{
-            .url = "https://github.com/LaurenceGuws/howl/releases/download/howl-vt-v0.1.6-dev.1/howl-vt-0.1.6-dev.tar.gz",
-            .hash = "howl_vt-0.1.6-dev-DNIreYs0LgDOt2aL3rgdPt-7HMXb_TcbBDtqWW5zYxTS",
-        },
-    },
+    .dependencies = .{},
     .paths = .{
         ".gitignore",
         ".zig-audit.json",

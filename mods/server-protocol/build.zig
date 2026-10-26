@@ -4,13 +4,19 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const vt = b.dependency("howl_vt", .{ .target = target, .optimize = optimize });
+    // The wire and Client share this exact codec module. Encoding borrows a VT
+    // observation only when a Server selects it; protocol readers own no VT.
+    const codec = b.addModule("terminal_observation_codec", .{
+        .root_source_file = b.path("src/observation_codec.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
     const protocol = b.addModule("server_protocol", .{
         .root_source_file = b.path("src/protocol/protocol.zig"),
         .target = target,
         .optimize = optimize,
     });
-    protocol.addImport("howl_vt_codec", vt.module("howl_vt_codec"));
+    protocol.addImport("terminal_observation_codec", codec);
     b.addNamedLazyPath("server_protocol_vectors", b.path("protocol/vectors.json"));
 
     const proof = b.addTest(.{
@@ -19,6 +25,7 @@ pub fn build(b: *std.Build) void {
         .use_llvm = false,
         .use_lld = false,
     });
+    const codec_proof = b.addTest(.{ .name = "terminal-observation-codec", .root_module = codec, .use_llvm = false, .use_lld = false });
     const vectors = b.addSystemCommand(&.{ "python3", "tools/validate_vectors.py", "protocol/vectors.json" });
     vectors.setCwd(b.path("."));
     const wire = b.step("wire", "Validate the independent Server wire vectors");
@@ -26,9 +33,11 @@ pub fn build(b: *std.Build) void {
 
     const check = b.step("check", "Compile the Server protocol and validate vectors");
     check.dependOn(&proof.step);
+    check.dependOn(&codec_proof.step);
     check.dependOn(wire);
     const tests = b.step("test", "Run Server protocol proofs and wire vectors");
     tests.dependOn(&b.addRunArtifact(proof).step);
+    tests.dependOn(&b.addRunArtifact(codec_proof).step);
     tests.dependOn(wire);
 
     const audit = b.step("audit", "Audit this package in its Git release root");

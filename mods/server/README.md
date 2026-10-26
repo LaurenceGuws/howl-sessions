@@ -16,8 +16,9 @@ to explicit Instance creation.
 The Server model and control service remain listener-free. Server owns an optional `server_terminal_service` interaction service beside each concrete Instance; Server routes already-connected streams by exact Session + Instance identity into that service.
 
 The foreground listener/scheduler is this package's `server_runtime` entry point,
-composed by the existing CLI. It selects presentation-free Instance and consumes
-the optional VT codec; local terminal composition does not import this package.
+composed by the existing CLI. It selects presentation-free Instance and borrows
+its observation through the protocol-owned codec; local terminal composition
+does not import this package.
 
 ## Shared protocol
 
