@@ -1,7 +1,7 @@
 name: howl_sessions
 description: Flutter host for Howl Sessions, optionally with local Howl Instances.
 publish_to: none
-version: 0.1.4-dev+5
+version: 0.1.5-dev+6
 
 environment:
   sdk: ^3.13.3

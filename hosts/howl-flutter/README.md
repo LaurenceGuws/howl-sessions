@@ -23,8 +23,15 @@ boundaries are established.
   physical keys travel as native press/repeat/release transitions. Software
   Backspace uses private IME editing guards that never reach the Server.
   Terminal input has a bounded ordered queue and explicit reconnect, without
-  replaying ambiguous sends. Terminal geometry selection and graphics fetching
-  remain pending.
+  replaying ambiguous sends. Geometry has its own exact-identity Client
+  attachment. The drawable rectangle and native Render cell metrics determine
+  the proposed rows/columns. Opening a viewport never claims the lease; the
+  user must select **Take sizing control**. Only that attachment then sends
+  debounced changes as keyboard insets or rotation change available space.
+  A lost leader receives an ordinary NOT_LEADER response and stops automatic
+  resizing. Reconnection starts as a follower and needs a new explicit takeover.
+  Canvas zoom/pan never changes terminal geometry. Graphics fetching remains
+  pending.
 - Android's canary font uses the device's verified DroidSansMono file with
   available Arabic/CJK fallbacks. The app does not yet bundle its own font.
   iOS font provisioning and native linking remain separate work.
@@ -45,7 +52,9 @@ client's `dart analyze`, `tool/catalog_canary.dart ENDPOINT` and
 creates and closes a real remote Session and Instance; the second exercises a
 dedicated terminal attachment, output revision, input, retained live following,
 cancel-while-blocked, independent input during parked observation, oversize
-input rejection and text projection.
+input rejection and text projection. The attachment canary additionally checks
+follower resize rejection, explicit geometry takeover, and nonfatal loss of
+authority on the superseded connection.
 `tool/semantic_input_canary.dart ENDPOINT` additionally proves real native
 named/Unicode key transitions, Ctrl+C interruption and observer cancellation.
 Both require `HOWL_SERVER_CLIENT_LIBRARY` pointing to the compiled shared ABI

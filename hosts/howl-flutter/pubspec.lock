@@ -112,7 +112,7 @@ packages:
       path: "../../mods/server-client/bindings/dart"
       relative: true
     source: path
-    version: "0.1.5-dev"
+    version: "0.1.6-dev"
   howl_server_client_render:
     dependency: "direct main"
     description:

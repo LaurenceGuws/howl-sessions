@@ -79,4 +79,17 @@ final class ServerClient {
     BigInt sessionId,
     BigInt instanceId,
   ) => TerminalTextInput.start(endpoint, serverId, sessionId, instanceId);
+
+  /// Geometry has independent attachment identity and explicit lease intent.
+  Future<TerminalGeometryAttachment> openGeometry(
+    String endpoint,
+    BigInt serverId,
+    BigInt sessionId,
+    BigInt instanceId,
+  ) => TerminalGeometryAttachment.start(
+    endpoint,
+    serverId,
+    sessionId,
+    instanceId,
+  );
 }

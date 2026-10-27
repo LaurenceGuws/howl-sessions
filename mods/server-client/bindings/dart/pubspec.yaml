@@ -1,6 +1,6 @@
 name: howl_server_client
 description: Dart bindings to the versioned Howl Server client C ABI.
-version: 0.1.5-dev
+version: 0.1.6-dev
 publish_to: none
 
 environment:

@@ -73,7 +73,7 @@ Future<void> main(List<String> args) async {
           observed.clientId != first.clientId) {
         throw StateError('No advancing observation on the same attachment');
       }
-      attachment.resize(26, 90);
+      attachment.resize(26, 90, acquireLeadership: true);
       final resized = attachment.observe(
         afterRevision: observed.deliveryRevision,
       );
@@ -82,6 +82,103 @@ Future<void> main(List<String> args) async {
           resized.deliveryRevision <= observed.deliveryRevision ||
           resized.clientId != first.clientId) {
         throw StateError('Resize was not observed on the same attachment');
+      }
+      // Geometry authority is exact-connection state. A follower cannot
+      // resize; explicit takeover transfers the lease without killing either
+      // retained connection, and the former leader receives NOT_LEADER.
+      final geometryA = await client.openGeometry(
+        endpoint,
+        tree.serverId,
+        session,
+        instance,
+      );
+      final geometryB = await client.openGeometry(
+        endpoint,
+        tree.serverId,
+        session,
+        instance,
+      );
+      try {
+        final initialAuthority = await geometryA.authority();
+        if (!initialAuthority.leaderPresent || initialAuthority.youAreLeader) {
+          throw StateError(
+            'New geometry attachment incorrectly inherited leadership',
+          );
+        }
+        try {
+          await geometryA.resize(
+            20,
+            60,
+            acquireLeadership: false,
+            cellPixelWidth: 9,
+            cellPixelHeight: 19,
+          );
+          throw StateError('Follower resize was wrongly accepted');
+        } on ServerClientFailure catch (error) {
+          if (error.status != 28) rethrow;
+        }
+        await geometryA.resize(
+          20,
+          60,
+          acquireLeadership: true,
+          cellPixelWidth: 9,
+          cellPixelHeight: 19,
+        );
+        if (!(await geometryA.authority()).youAreLeader ||
+            (await geometryB.authority()).youAreLeader) {
+          throw StateError(
+            'Explicit geometry takeover did not isolate authority',
+          );
+        }
+        await geometryB.resize(
+          18,
+          55,
+          acquireLeadership: true,
+          cellPixelWidth: 9,
+          cellPixelHeight: 19,
+        );
+        try {
+          await geometryA.resize(
+            19,
+            56,
+            acquireLeadership: false,
+            cellPixelWidth: 9,
+            cellPixelHeight: 19,
+          );
+          throw StateError('Superseded geometry leader could still resize');
+        } on ServerClientFailure catch (error) {
+          if (error.status != 28) rethrow;
+        }
+        if ((await geometryA.authority()).youAreLeader ||
+            !(await geometryB.authority()).youAreLeader) {
+          throw StateError('Authority loss incorrectly retained leader state');
+        }
+        await geometryB.resize(
+          17,
+          54,
+          acquireLeadership: false,
+          cellPixelWidth: 9,
+          cellPixelHeight: 19,
+        );
+      } finally {
+        await geometryA.close();
+        await geometryB.close();
+      }
+      final reconnected = await client.openGeometry(
+        endpoint,
+        tree.serverId,
+        session,
+        instance,
+      );
+      try {
+        final status = await reconnected.authority();
+        if (status.youAreLeader) {
+          throw StateError(
+            'Replacement geometry connection inherited authority',
+          );
+        }
+      } finally {
+        await reconnected.close();
       }
       final follower = await client.followText(
         endpoint,
@@ -201,6 +298,7 @@ Future<void> main(List<String> args) async {
           'live_follow': 'pass',
           'independent_input': 'pass',
           'blocked_cancel': 'pass',
+          'geometry_takeover_and_authority_loss': 'pass',
         }),
       );
     } finally {

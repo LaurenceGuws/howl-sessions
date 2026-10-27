@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:isolate';
 
 import 'native_attachment.dart';
+import 'catalog.dart';
 import 'terminal_text.dart';
 import 'terminal_keys.dart';
 
@@ -25,6 +26,7 @@ final class _TerminalAttachment {
   SendPort? _commands;
   Completer<TerminalTextSnapshot>? _pending;
   Completer<void>? _pendingInput;
+  Completer<({bool leaderPresent, bool youAreLeader})>? _pendingAuthority;
   String? _failure;
   bool _stopping = false;
   Future<void>? _closeFuture;
@@ -68,7 +70,9 @@ final class _TerminalAttachment {
   Future<TerminalTextSnapshot> next() async {
     if (_inputOnly) throw StateError('Input attachment cannot observe');
     await waitReady();
-    if (_pending != null || _pendingInput != null) {
+    if (_pending != null ||
+        _pendingInput != null ||
+        _pendingAuthority != null) {
       throw StateError('Attachment operation already pending');
     }
     final result = Completer<TerminalTextSnapshot>();
@@ -81,7 +85,9 @@ final class _TerminalAttachment {
     if (!_inputOnly)
       throw StateError('Observation attachment cannot send input');
     await waitReady();
-    if (_pending != null || _pendingInput != null) {
+    if (_pending != null ||
+        _pendingInput != null ||
+        _pendingAuthority != null) {
       throw StateError('Attachment operation already pending');
     }
     final result = Completer<void>();
@@ -118,6 +124,36 @@ final class _TerminalAttachment {
     return _sendInput(['unicode', scalar, action.code, modifiers]);
   }
 
+  Future<void> _resize(
+    int rows,
+    int columns, {
+    required bool acquireLeadership,
+    required int cellPixelWidth,
+    required int cellPixelHeight,
+  }) => _sendInput([
+    'resize',
+    rows,
+    columns,
+    acquireLeadership,
+    cellPixelWidth,
+    cellPixelHeight,
+  ]);
+
+  Future<({bool leaderPresent, bool youAreLeader})> _authority() async {
+    if (!_inputOnly)
+      throw StateError('Observation attachment cannot own geometry');
+    await waitReady();
+    if (_pending != null ||
+        _pendingInput != null ||
+        _pendingAuthority != null) {
+      throw StateError('Attachment operation already pending');
+    }
+    final pending = Completer<({bool leaderPresent, bool youAreLeader})>();
+    _pendingAuthority = pending;
+    _commands!.send(['authority']);
+    return pending.future;
+  }
+
   /// A worker existing is not proof that its native connection is ready.
   /// The owner keeps the attachment available for cancellation while waiting.
   Future<void> waitReady() async {
@@ -135,6 +171,8 @@ final class _TerminalAttachment {
     _pending = null;
     _pendingInput?.completeError(StateError('Terminal input cancelled'));
     _pendingInput = null;
+    _pendingAuthority?.completeError(StateError('Terminal geometry cancelled'));
+    _pendingAuthority = null;
     // The worker borrows the token through connection setup and blocked I/O.
     // Cancel is synchronous; the worker cannot free the token itself.
     _interrupt.cancel();
@@ -153,6 +191,8 @@ final class _TerminalAttachment {
       _pending = null;
       _pendingInput?.completeError(StateError(_failure!));
       _pendingInput = null;
+      _pendingAuthority?.completeError(StateError(_failure!));
+      _pendingAuthority = null;
       if (!_exited.isCompleted) _exited.complete();
       return;
     }
@@ -175,6 +215,21 @@ final class _TerminalAttachment {
         final pending = _pendingInput;
         _pendingInput = null;
         if (!_stopping) pending?.complete();
+      case 'authority':
+        final pending = _pendingAuthority;
+        _pendingAuthority = null;
+        if (!_stopping && pending != null) {
+          pending.complete((
+            leaderPresent: message[1] as bool,
+            youAreLeader: message[2] as bool,
+          ));
+        }
+      case 'not_leader':
+        final pending = _pendingInput;
+        _pendingInput = null;
+        if (!_stopping) {
+          pending?.completeError(const ServerClientFailure('resize', 28));
+        }
       case 'failed':
         _failure = message[1] as String;
         if (!_ready.isCompleted) _ready.complete();
@@ -182,6 +237,8 @@ final class _TerminalAttachment {
         _pending = null;
         _pendingInput?.completeError(StateError(_failure!));
         _pendingInput = null;
+        _pendingAuthority?.completeError(StateError(_failure!));
+        _pendingAuthority = null;
       default:
         // Isolate error messages are [error, stack], not our tagged records.
         _failure = 'Terminal attachment failed: $message';
@@ -190,6 +247,8 @@ final class _TerminalAttachment {
         _pending = null;
         _pendingInput?.completeError(StateError(_failure!));
         _pendingInput = null;
+        _pendingAuthority?.completeError(StateError(_failure!));
+        _pendingAuthority = null;
     }
   }
 }
@@ -264,6 +323,53 @@ final class TerminalTextInput {
   Future<void> close() => _attachment.close();
 }
 
+/// Geometry belongs to this exact connection. Replacing it loses leadership.
+/// A new attachment never silently claims its predecessor's authority.
+final class TerminalGeometryAttachment {
+  TerminalGeometryAttachment._(this._attachment);
+  final _TerminalAttachment _attachment;
+
+  static Future<TerminalGeometryAttachment> start(
+    String endpoint,
+    BigInt serverId,
+    BigInt sessionId,
+    BigInt instanceId,
+  ) async => TerminalGeometryAttachment._(
+    await _TerminalAttachment.start(
+      endpoint,
+      serverId,
+      sessionId,
+      instanceId,
+      true,
+    ),
+  );
+
+  Future<void> resize(
+    int rows,
+    int columns, {
+    required bool acquireLeadership,
+    required int cellPixelWidth,
+    required int cellPixelHeight,
+  }) {
+    if (rows < 1 || rows > 65535 || columns < 1 || columns > 65535) {
+      throw RangeError('Terminal geometry must fit nonzero u16');
+    }
+    return _attachment._resize(
+      rows,
+      columns,
+      acquireLeadership: acquireLeadership,
+      cellPixelWidth: cellPixelWidth,
+      cellPixelHeight: cellPixelHeight,
+    );
+  }
+
+  Future<({bool leaderPresent, bool youAreLeader})> authority() =>
+      _attachment._authority();
+
+  Future<void> get ready => _attachment.waitReady();
+  Future<void> close() => _attachment.close();
+}
+
 final class _AttachmentRequest {
   const _AttachmentRequest(
     this.events,
@@ -325,6 +431,28 @@ Future<void> _runAttachment(_AttachmentRequest request) async {
               action,
               modifiers: command[3] as int,
             );
+          case 'resize' when command.length == 6:
+            try {
+              attachment.resize(
+                command[1] as int,
+                command[2] as int,
+                acquireLeadership: command[3] as bool,
+                cellPixelWidth: command[4] as int,
+                cellPixelHeight: command[5] as int,
+              );
+            } on ServerClientFailure catch (error) {
+              if (error.status != 28) rethrow;
+              request.events.send(['not_leader']);
+              continue;
+            }
+          case 'authority' when command.length == 1:
+            final status = attachment.geometryAuthority();
+            request.events.send([
+              'authority',
+              status.leaderPresent,
+              status.youAreLeader,
+            ]);
+            continue;
           default:
             throw StateError('Invalid attachment input command');
         }

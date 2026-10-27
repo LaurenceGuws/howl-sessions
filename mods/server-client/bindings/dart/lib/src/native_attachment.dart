@@ -58,6 +58,17 @@ final class _Metadata extends Struct {
   external int flags;
 }
 
+final class _Geometry extends Struct {
+  @Uint16()
+  external int rows;
+  @Uint16()
+  external int columns;
+  @Uint16()
+  external int cellPixelWidth;
+  @Uint16()
+  external int cellPixelHeight;
+}
+
 final class _Row extends Struct {
   @Uint32()
   external int cellOffset;
@@ -222,8 +233,16 @@ typedef _TextNative = Uint32 Function(
 typedef _TextDart = int Function(Pointer<Void>, Pointer<Uint8>, int, int);
 typedef _KeyNative = Uint32 Function(Pointer<Void>, Uint32, Uint32, Uint32);
 typedef _KeyDart = int Function(Pointer<Void>, int, int, int);
-typedef _ResizeNative = Uint32 Function(Pointer<Void>, Uint16, Uint16, Uint32);
-typedef _ResizeDart = int Function(Pointer<Void>, int, int, int);
+typedef _ResizeGeometryNative = Uint32 Function(
+  Pointer<Void>,
+  Pointer<_Geometry>,
+  Uint32,
+);
+typedef _ResizeGeometryDart = int Function(
+  Pointer<Void>,
+  Pointer<_Geometry>,
+  int,
+);
 
 /// Exact attachment ABI from howl_server_client.h v1, not a host-owned wire.
 final class _AttachmentAbi {
@@ -283,9 +302,10 @@ final class _AttachmentAbi {
       unicodeKey = library.lookupFunction<_KeyNative, _KeyDart>(
         'hsc_unicode_key',
       ),
-      resize = library.lookupFunction<_ResizeNative, _ResizeDart>(
-        'hsc_resize',
-      ) {
+      resizeGeometry = library
+          .lookupFunction<_ResizeGeometryNative, _ResizeGeometryDart>(
+            'hsc_resize_geometry',
+          ) {
     // Guard native C record shapes before any foreign write into Dart memory.
     if (sizeOf<_Ready>() != 40 ||
         sizeOf<_Metadata>() != 64 ||
@@ -313,7 +333,7 @@ final class _AttachmentAbi {
   final _TextDart text;
   final _KeyDart namedKey;
   final _KeyDart unicodeKey;
-  final _ResizeDart resize;
+  final _ResizeGeometryDart resizeGeometry;
 }
 
 void _check(String operation, int code) {
@@ -604,13 +624,55 @@ final class NativeTerminalAttachment {
     );
   }
 
-  void resize(int rows, int columns) {
+  void resize(
+    int rows,
+    int columns, {
+    required bool acquireLeadership,
+    int cellPixelWidth = 0,
+    int cellPixelHeight = 0,
+  }) {
     if (_released) throw StateError('Attachment already released');
     if (rows < 1 || rows > 65535 || columns < 1 || columns > 65535) {
       throw RangeError('Terminal geometry must fit nonzero u16');
     }
-    _check('resize', _abi.resize(_slot.value, rows, columns, 1));
+    if (cellPixelWidth < 0 ||
+        cellPixelWidth > 65535 ||
+        cellPixelHeight < 0 ||
+        cellPixelHeight > 65535 ||
+        (cellPixelWidth == 0) != (cellPixelHeight == 0)) {
+      throw RangeError('Cell pixel metrics must be paired nonnegative u16');
+    }
+    final geometry = calloc<_Geometry>();
+    try {
+      geometry.ref
+        ..rows = rows
+        ..columns = columns
+        ..cellPixelWidth = cellPixelWidth
+        ..cellPixelHeight = cellPixelHeight;
+      _check(
+        'resize geometry',
+        _abi.resizeGeometry(_slot.value, geometry, acquireLeadership ? 1 : 0),
+      );
+    } finally {
+      calloc.free(geometry);
+    }
   }
+
+  /// Status belongs to this attachment's identity, not another observer.
+  ({bool leaderPresent, bool youAreLeader}) geometryAuthority() =>
+      observeWith((snapshot, _) {
+        final metadata = calloc<_Metadata>();
+        try {
+          _check('geometry authority', _abi.metadata(snapshot, metadata));
+          final flags = metadata.ref.flags;
+          return (
+            leaderPresent: (flags & 32) != 0,
+            youAreLeader: (flags & 64) != 0,
+          );
+        } finally {
+          calloc.free(metadata);
+        }
+      });
 
   void close() {
     if (_released) return;
