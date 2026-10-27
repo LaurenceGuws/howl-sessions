@@ -17,6 +17,7 @@ export 'src/catalog.dart';
 export 'src/launch.dart';
 export 'src/terminal_text.dart';
 export 'src/terminal_attachments.dart';
+export 'src/terminal_keys.dart';
 
 /// The native module owns framing and transport. Flutter schedules requests.
 final class ServerClient {

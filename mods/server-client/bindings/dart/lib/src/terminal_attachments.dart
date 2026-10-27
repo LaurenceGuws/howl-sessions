@@ -4,6 +4,7 @@ import 'dart:isolate';
 
 import 'native_attachment.dart';
 import 'terminal_text.dart';
+import 'terminal_keys.dart';
 
 /// Each public role owns a distinct isolate and native Instance attachment.
 /// Only the worker implementation is shared between observation and input.
@@ -76,22 +77,45 @@ final class _TerminalAttachment {
     return result.future;
   }
 
-  Future<void> _sendText(String text) async {
+  Future<void> _sendInput(List<Object> command) async {
     if (!_inputOnly)
       throw StateError('Observation attachment cannot send input');
-    if (text.length > 65535) throw RangeError('Input exceeds 65535 bytes');
-    final bytes = utf8.encode(text);
-    if (bytes.isEmpty || bytes.length > 65535) {
-      throw RangeError('Input must contain 1..65535 UTF-8 bytes');
-    }
     await waitReady();
     if (_pending != null || _pendingInput != null) {
       throw StateError('Attachment operation already pending');
     }
     final result = Completer<void>();
     _pendingInput = result;
-    _commands!.send(['text', text]);
+    _commands!.send(command);
     return result.future;
+  }
+
+  Future<void> _sendText(String text) {
+    if (text.length > 65535) throw RangeError('Input exceeds 65535 bytes');
+    final bytes = utf8.encode(text);
+    if (bytes.isEmpty || bytes.length > 65535) {
+      throw RangeError('Input must contain 1..65535 UTF-8 bytes');
+    }
+    return _sendInput(['text', text]);
+  }
+
+  Future<void> _sendNamedKey(
+    TerminalNamedKey key,
+    TerminalKeyAction action,
+    int modifiers,
+  ) {
+    validateTerminalModifiers(modifiers);
+    return _sendInput(['named', key.code, action.code, modifiers]);
+  }
+
+  Future<void> _sendUnicodeKey(
+    int scalar,
+    TerminalKeyAction action,
+    int modifiers,
+  ) {
+    validateTerminalScalar(scalar);
+    validateTerminalModifiers(modifiers);
+    return _sendInput(['unicode', scalar, action.code, modifiers]);
   }
 
   /// A worker existing is not proof that its native connection is ready.
@@ -223,6 +247,18 @@ final class TerminalTextInput {
 
   Future<void> sendText(String text) => _attachment._sendText(text);
 
+  Future<void> sendNamedKey(
+    TerminalNamedKey key,
+    TerminalKeyAction action, {
+    int modifiers = 0,
+  }) => _attachment._sendNamedKey(key, action, modifiers);
+
+  Future<void> sendUnicodeKey(
+    int scalar,
+    TerminalKeyAction action, {
+    int modifiers = 0,
+  }) => _attachment._sendUnicodeKey(scalar, action, modifiers);
+
   Future<void> get ready => _attachment.waitReady();
 
   Future<void> close() => _attachment.close();
@@ -268,11 +304,30 @@ Future<void> _runAttachment(_AttachmentRequest request) async {
         final snapshot = attachment.observe(afterRevision: revision);
         revision = snapshot.deliveryRevision;
         request.events.send(['frame', snapshot]);
-      } else if (command is List &&
-          command.length == 2 &&
-          command.first == 'text' &&
-          request.inputOnly) {
-        attachment.sendText(command[1] as String);
+      } else if (command is List && request.inputOnly && command.isNotEmpty) {
+        switch (command.first) {
+          case 'text' when command.length == 2:
+            attachment.sendText(command[1] as String);
+          case 'named' when command.length == 4:
+            final key = TerminalNamedKey.values.singleWhere(
+              (key) => key.code == command[1],
+            );
+            final action = TerminalKeyAction.values.singleWhere(
+              (action) => action.code == command[2],
+            );
+            attachment.sendNamedKey(key, action, modifiers: command[3] as int);
+          case 'unicode' when command.length == 4:
+            final action = TerminalKeyAction.values.singleWhere(
+              (action) => action.code == command[2],
+            );
+            attachment.sendUnicodeKey(
+              command[1] as int,
+              action,
+              modifiers: command[3] as int,
+            );
+          default:
+            throw StateError('Invalid attachment input command');
+        }
         request.events.send(['sent']);
       } else {
         throw StateError('Invalid attachment command');

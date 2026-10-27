@@ -7,6 +7,7 @@ import 'catalog.dart';
 import 'native_identity.dart';
 import 'native_library.dart';
 import 'terminal_text.dart';
+import 'terminal_keys.dart';
 
 const _abiVersion = 1;
 const _ok = 0;
@@ -219,6 +220,8 @@ typedef _TextNative = Uint32 Function(
   Uint32,
 );
 typedef _TextDart = int Function(Pointer<Void>, Pointer<Uint8>, int, int);
+typedef _KeyNative = Uint32 Function(Pointer<Void>, Uint32, Uint32, Uint32);
+typedef _KeyDart = int Function(Pointer<Void>, int, int, int);
 typedef _ResizeNative = Uint32 Function(Pointer<Void>, Uint16, Uint16, Uint32);
 typedef _ResizeDart = int Function(Pointer<Void>, int, int, int);
 
@@ -276,6 +279,10 @@ final class _AttachmentAbi {
         'hsc_snapshot_scalars',
       ),
       text = library.lookupFunction<_TextNative, _TextDart>('hsc_text'),
+      namedKey = library.lookupFunction<_KeyNative, _KeyDart>('hsc_named_key'),
+      unicodeKey = library.lookupFunction<_KeyNative, _KeyDart>(
+        'hsc_unicode_key',
+      ),
       resize = library.lookupFunction<_ResizeNative, _ResizeDart>(
         'hsc_resize',
       ) {
@@ -304,6 +311,8 @@ final class _AttachmentAbi {
   final _CellsDart cells;
   final _ScalarsDart scalars;
   final _TextDart text;
+  final _KeyDart namedKey;
+  final _KeyDart unicodeKey;
   final _ResizeDart resize;
 }
 
@@ -566,6 +575,33 @@ final class NativeTerminalAttachment {
     } finally {
       calloc.free(buffer);
     }
+  }
+
+  void sendNamedKey(
+    TerminalNamedKey key,
+    TerminalKeyAction action, {
+    int modifiers = 0,
+  }) {
+    validateTerminalModifiers(modifiers);
+    if (_released) throw StateError('Attachment already released');
+    _check(
+      'named key',
+      _abi.namedKey(_slot.value, key.code, action.code, modifiers),
+    );
+  }
+
+  void sendUnicodeKey(
+    int scalar,
+    TerminalKeyAction action, {
+    int modifiers = 0,
+  }) {
+    validateTerminalScalar(scalar);
+    validateTerminalModifiers(modifiers);
+    if (_released) throw StateError('Attachment already released');
+    _check(
+      'unicode key',
+      _abi.unicodeKey(_slot.value, scalar, action.code, modifiers),
+    );
   }
 
   void resize(int rows, int columns) {

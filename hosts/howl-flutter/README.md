@@ -12,15 +12,19 @@ boundaries are established.
 - `servers/` owns local named endpoint preferences and their Settings CRUD.
 - `sessions/` shows the selected Server's Session/Instance tree, with Session
   and Instance create/close. The add action for Sessions lives on that pane.
-- `instances/` owns a native Render Canvas and **explicit line input** to one
+- `instances/` owns a native Render Canvas and **semantic terminal input** to one
   Instance. Separate Instance attachments isolate rendering observation from
   input. The observer borrows a native snapshot, copies canonical Render frame
   commands and pixels on its worker, then releases both native borrows before
   posting the frame to Flutter. The Canvas decodes uploads, reports actual
   resident textures on its next pull, and retires removed images after a frame
   is painted. Blocked observation is cancelled and joined before the native
-  interrupt is freed. Shell-line submission adds Enter; full terminal key
-  handling, terminal geometry selection and graphics fetching remain pending.
+  interrupt is freed. IME commits travel as UTF-8 text; named and modified
+  physical keys travel as native press/repeat/release transitions. Software
+  Backspace uses private IME editing guards that never reach the Server.
+  Terminal input has a bounded ordered queue and explicit reconnect, without
+  replaying ambiguous sends. Terminal geometry selection and graphics fetching
+  remain pending.
 - Android's canary font uses the device's verified DroidSansMono file with
   available Arabic/CJK fallbacks. The app does not yet bundle its own font.
   iOS font provisioning and native linking remain separate work.
@@ -42,6 +46,8 @@ creates and closes a real remote Session and Instance; the second exercises a
 dedicated terminal attachment, output revision, input, retained live following,
 cancel-while-blocked, independent input during parked observation, oversize
 input rejection and text projection.
+`tool/semantic_input_canary.dart ENDPOINT` additionally proves real native
+named/Unicode key transitions, Ctrl+C interruption and observer cancellation.
 Both require `HOWL_SERVER_CLIENT_LIBRARY` pointing to the compiled shared ABI
 and an explicitly started development Server.
 The initial Linux and Android attachment integration passes include a Server
@@ -57,7 +63,8 @@ stay ignored under `native/android` and `build/`. Installation and test-server
 selection are separate attended canaries.
 
 The composed Flutter Canvas builds, analyzes and passes widget/resource tests.
-That is a source/build qualification, not yet a live Android Canvas pass.
+The earlier Note10 Android Canvas canary passed; the expanded semantic keyboard
+still needs its own attended Note10 device canary.
 Native graphics manifests are currently rejected explicitly; a full image
 fetch/refill lane is not silently substituted.
 
