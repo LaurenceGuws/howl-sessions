@@ -1,23 +1,36 @@
 import 'dart:io';
 
+import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
+
+import 'font_assets.dart';
+
+Future<FontAssetMaterializer>? _packaged;
+
+Future<FontAssetMaterializer> _openPackagedFonts() async {
+  final directory = await getApplicationSupportDirectory();
+  return FontAssetMaterializer(Directory('${directory.path}/terminal-fonts'), (
+    asset,
+  ) async {
+    final bytes = await rootBundle.load(asset);
+    return bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes);
+  });
+}
+
 /// Native Text requires real font files; the host owns platform selection.
 Future<(String, List<String>)> terminalFonts() async {
-  if (Platform.isAndroid) {
-    // Confirmed on the Note10 Android canary. Other devices fail explicitly
-    // until this host ships its own independently licensed font asset.
-    const primary = '/system/fonts/DroidSansMono.ttf';
-    if (!await File(primary).exists()) {
-      throw StateError('Android monospace font unavailable: $primary');
+  if (Platform.isAndroid || Platform.isIOS) {
+    // Cache the pending directory discovery too, so simultaneous observers
+    // cannot create competing materializers before its first await finishes.
+    final pending = _packaged ??= _openPackagedFonts();
+    try {
+      final materializer = await pending;
+      final paths = await materializer.ensure(packagedTerminalFonts);
+      return (paths.first, paths.skip(1).toList(growable: false));
+    } catch (_) {
+      if (identical(_packaged, pending)) _packaged = null;
+      rethrow;
     }
-    const candidates = [
-      '/system/fonts/NotoNaskhArabic-Regular.ttf',
-      '/system/fonts/NotoSansCJK-Regular.ttc',
-    ];
-    final fallback = <String>[];
-    for (final path in candidates) {
-      if (await File(path).exists()) fallback.add(path);
-    }
-    return (primary, fallback);
   }
   if (Platform.isLinux) {
     final configured = Platform.environment['HOWL_FONT_PATH'];

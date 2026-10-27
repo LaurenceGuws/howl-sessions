@@ -32,9 +32,21 @@ boundaries are established.
   resizing. Reconnection starts as a follower and needs a new explicit takeover.
   Canvas zoom/pan never changes terminal geometry. Graphics fetching remains
   pending.
-- Android's canary font uses the device's verified DroidSansMono file with
-  available Arabic/CJK fallbacks. The app does not yet bundle its own font.
-  iOS font provisioning and native linking remain separate work.
+- Android and iOS select two Flutter-owned, licensed font assets: unmodified
+  IosevkaTerm Nerd Font (primary) and Noto Sans (fallback). The host verifies
+  bundled bytes against pinned SHA-256 digests, writes them to an app-private
+  application-support directory using same-filesystem staged rename, and
+  revalidates/replaces corrupt or partial installed copies on subsequent use.
+  Concurrent requests in one Dart isolate coalesce, and failures permit retry.
+  Flutter passes the resulting paths to the existing native Text/Render owner;
+  there is no alternative Flutter text renderer or new C ABI. The full OFL
+  notice is shipped as `LICENSES/redistributed-fonts.txt` and both font files
+  remain byte-identical to the recorded Howl Text fixtures. The 13 MiB Iosevka
+  binary is a deliberate development packaging cost, not a stable-size promise.
+  The two bundled faces do not promise complete Unicode/emoji coverage.
+  Linux keeps its existing explicit environment/fontconfig selection.
+  iOS native library linking, sandbox use, provisioning and runtime **remain
+  unqualified** until an independent real-target gate.
 - `mods/server-client/bindings/dart` owns all C struct layouts, framing via
   the native library, exact unsigned 64-bit identities and handle cleanup.
   Each management operation runs off the UI isolate. Each retained attachment

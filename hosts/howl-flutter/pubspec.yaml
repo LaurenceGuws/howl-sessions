@@ -1,7 +1,7 @@
 name: howl_sessions
 description: Flutter host for Howl Sessions, optionally with local Howl Instances.
 publish_to: none
-version: 0.1.5-dev+6
+version: 0.1.6-dev+7
 
 environment:
   sdk: ^3.13.3
@@ -14,6 +14,8 @@ dependencies:
   howl_server_client_render:
     path: ../../mods/server-client-render/bindings/dart
   shared_preferences: ^2.5.5
+  path_provider: ^2.1.5
+  crypto: ^3.0.6
 
 dev_dependencies:
   flutter_test:
@@ -25,3 +27,7 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/fonts/IosevkaTermNerdFont-Regular.ttf
+    - assets/fonts/NotoSans-Regular.ttf
+    - LICENSES/redistributed-fonts.txt
