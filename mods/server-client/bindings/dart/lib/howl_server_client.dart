@@ -19,28 +19,85 @@ export 'src/terminal_text.dart';
 export 'src/terminal_attachments.dart';
 export 'src/terminal_keys.dart';
 
+/// Short-lived management requests, fenced to the catalog incarnation the caller saw.
+/// Implementations must never reconnect or replay an uncertain mutation implicitly.
+abstract interface class ServerManagement {
+  Future<SessionTree> readTree(String endpoint);
+  Future<BigInt> createSession(
+    String endpoint,
+    String name, {
+    required BigInt serverId,
+  });
+  Future<void> closeSession(
+    String endpoint,
+    BigInt sessionId, {
+    required BigInt serverId,
+  });
+  Future<BigInt> createInstance(
+    String endpoint,
+    InstanceLaunch launch, {
+    required BigInt serverId,
+  });
+  Future<void> closeInstance(
+    String endpoint,
+    BigInt sessionId,
+    BigInt instanceId, {
+    required BigInt serverId,
+  });
+}
+
 /// The native module owns framing and transport. Flutter schedules requests.
-final class ServerClient {
+final class ServerClient implements ServerManagement {
   const ServerClient();
 
   Future<SessionTree> readTree(String endpoint) =>
       Isolate.run(() => NativeServerClient().readTree(endpoint));
 
-  Future<BigInt> createSession(String endpoint, String name) =>
-      Isolate.run(() => NativeServerClient().createSession(endpoint, name));
+  Future<BigInt> createSession(
+    String endpoint,
+    String name, {
+    required BigInt serverId,
+  }) => Isolate.run(
+    () =>
+        NativeServerClient().createSession(endpoint, name, serverId: serverId),
+  );
 
-  Future<void> closeSession(String endpoint, BigInt sessionId) =>
-      Isolate.run(() => NativeServerClient().closeSession(endpoint, sessionId));
+  Future<void> closeSession(
+    String endpoint,
+    BigInt sessionId, {
+    required BigInt serverId,
+  }) => Isolate.run(
+    () => NativeServerClient().closeSession(
+      endpoint,
+      sessionId,
+      serverId: serverId,
+    ),
+  );
 
-  Future<BigInt> createInstance(String endpoint, InstanceLaunch launch) =>
-      Isolate.run(() => NativeServerClient().createInstance(endpoint, launch));
+  Future<BigInt> createInstance(
+    String endpoint,
+    InstanceLaunch launch, {
+    required BigInt serverId,
+  }) => Isolate.run(
+    () => NativeServerClient().createInstance(
+      endpoint,
+      launch,
+      serverId: serverId,
+    ),
+  );
 
   Future<void> closeInstance(
     String endpoint,
     BigInt sessionId,
-    BigInt instanceId,
-  ) => Isolate.run(
-    () => NativeServerClient().closeInstance(endpoint, sessionId, instanceId),
+    BigInt instanceId, {
+    required BigInt serverId,
+  }) => Isolate.run(
+    () => NativeServerClient().closeInstance(
+      endpoint,
+      sessionId,
+      instanceId,
+      serverId: serverId,
+    ),
   );
 
   /// One immutable, text-only terminal preview on a short-lived attachment.

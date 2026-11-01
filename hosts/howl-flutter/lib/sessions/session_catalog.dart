@@ -11,6 +11,7 @@ final class SessionCatalog extends StatelessWidget {
     required this.selectedEndpoint,
     required this.tree,
     required this.loading,
+    this.busy = false,
     required this.selectedInstanceId,
     required this.onSelectServer,
     required this.onOpenSettings,
@@ -25,6 +26,7 @@ final class SessionCatalog extends StatelessWidget {
   final String? selectedEndpoint;
   final SessionTree? tree;
   final bool loading;
+  final bool busy;
   final BigInt? selectedInstanceId;
   final ValueChanged<String> onSelectServer;
   final VoidCallback onOpenSettings;
@@ -51,9 +53,11 @@ final class SessionCatalog extends StatelessWidget {
                   child: Text(server.name),
                 ),
             ],
-            onChanged: (endpoint) {
-              if (endpoint != null) onSelectServer(endpoint);
-            },
+            onChanged: busy
+                ? null
+                : (endpoint) {
+                    if (endpoint != null) onSelectServer(endpoint);
+                  },
           ),
         ),
         Padding(
@@ -66,12 +70,19 @@ final class SessionCatalog extends StatelessWidget {
               IconButton(
                 tooltip: 'New session',
                 icon: const Icon(Icons.add),
-                onPressed: selectedEndpoint == null ? null : onCreateSession,
+                onPressed:
+                    selectedEndpoint == null ||
+                        tree == null ||
+                        loading ||
+                        busy ||
+                        tree!.sessions.length >= tree!.sessionCapacity
+                    ? null
+                    : onCreateSession,
               ),
               IconButton(
                 tooltip: 'Refresh sessions',
                 icon: const Icon(Icons.refresh),
-                onPressed: selectedEndpoint == null || loading
+                onPressed: selectedEndpoint == null || loading || busy
                     ? null
                     : onRefresh,
               ),
@@ -109,10 +120,17 @@ final class SessionCatalog extends StatelessWidget {
                             IconButton(
                               tooltip: 'New instance',
                               icon: const Icon(Icons.add),
-                              onPressed: () => onCreateInstance(session),
+                              onPressed:
+                                  busy ||
+                                      loading ||
+                                      session.instances.length >=
+                                          tree!.instancesPerSession
+                                  ? null
+                                  : () => onCreateInstance(session),
                             ),
                             PopupMenuButton<String>(
                               tooltip: 'Session actions',
+                              enabled: !busy && !loading,
                               onSelected: (action) {
                                 if (action == 'close') onCloseSession(session);
                               },

@@ -12,6 +12,15 @@ boundaries are established.
 - `servers/` owns local named endpoint preferences and their Settings CRUD.
 - `sessions/` shows the selected Server's Session/Instance tree, with Session
   and Instance create/close. The add action for Sessions lives on that pane.
+  Phones open a selected Instance into a full terminal viewport; Back returns to
+  the catalog and detaches the view without stopping its process. Wide windows
+  keep the catalog alongside the terminal. One management action or dialog may
+  be active at a time. Capacity comes from the observed Server catalog.
+  Every mutation requires that catalog's Server incarnation; the Dart binding
+  checks it on the same control connection before sending a mutation. A restart
+  clears old numeric selections. Failed requests are never automatically replayed;
+  the error action refreshes the catalog so the operator can inspect the result.
+  Create forms own their editing lifetime until the dialog route is disposed.
 - `instances/` owns a native Render Canvas and **semantic terminal input** to one
   Instance. Separate Instance attachments isolate rendering observation from
   input. The observer borrows a native snapshot, copies canonical Render frame
@@ -61,7 +70,8 @@ boundaries are established.
 `flutter analyze` and `flutter test test` validate the current Dart host. The
 client's `dart analyze`, `tool/catalog_canary.dart ENDPOINT` and
 `tool/attachment_canary.dart ENDPOINT` qualify the separate binding. The first
-creates and closes a real remote Session and Instance; the second exercises a
+creates and closes a real remote Session and Instance, and proves all four
+management mutations reject stale Server identity without changing the catalog; the second exercises a
 dedicated terminal attachment, output revision, input, retained live following,
 cancel-while-blocked, independent input during parked observation, oversize
 input rejection and text projection. The attachment canary additionally checks
@@ -89,8 +99,15 @@ still needs its own attended Note10 device canary.
 Native graphics manifests are currently rejected explicitly; a full image
 fetch/refill lane is not silently substituted.
 
-The Linux runner scaffold exists but Home currently lacks Ninja; there is
-no validated Linux desktop bundle yet. iOS host
+The Linux runner now builds with Ninja from the installed Android SDK CMake
+package (supplied on the build command's PATH). A private KWin UI canary covers
+catalog/create, full terminal display, explicit sizing takeover, Back/detach,
+and reattach with the process still alive. The composed native library is
+currently supplied through HOWL_SERVER_CLIENT_LIBRARY for that canary; a
+self-contained Linux bundle is still pending. The same canary exposed an
+existing rapid-typing IME defect: queued cumulative edit snapshots can replay
+already-sent prefixes when the hidden editor is reset after every character.
+Slow physical typing works; rapid input is not yet qualified. iOS host
 packaging is also pending.
 
 ## Android native canary

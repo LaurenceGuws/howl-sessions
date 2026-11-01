@@ -157,6 +157,9 @@ final class _Abi {
       close = library.lookupFunction<_ReleaseNative, _ReleaseDart>(
         'hsc_control_release',
       ),
+      status = library.lookupFunction<_StatusNative, _StatusDart>(
+        'hsc_control_status',
+      ),
       tree = library.lookupFunction<_TreeNative, _TreeDart>('hsc_control_tree'),
       releaseTree = library.lookupFunction<_ReleaseNative, _ReleaseDart>(
         'hsc_tree_release',
@@ -186,6 +189,7 @@ final class _Abi {
 
   final _OpenDart open;
   final _ReleaseDart close;
+  final _StatusDart status;
   final _TreeDart tree;
   final _ReleaseDart releaseTree;
   final _StatusDart treeStatus;
@@ -256,109 +260,151 @@ final class NativeServerClient {
     }
   });
 
-  BigInt createSession(String endpoint, String name) =>
-      _withControl(endpoint, (control) {
-        final nameBytes = utf8.encode(name);
-        final nameBuffer = calloc<Uint8>(nameBytes.length);
-        final identity = calloc<Uint64>();
-        try {
-          nameBuffer.asTypedList(nameBytes.length).setAll(0, nameBytes);
-          _check(
-            'create session',
-            _abi.create(control, nameBuffer, nameBytes.length, identity),
-          );
-          return fromNativeIdentity(identity.value);
-        } finally {
-          calloc.free(identity);
-          calloc.free(nameBuffer);
-        }
-      });
+  BigInt createSession(
+    String endpoint,
+    String name, {
+    required BigInt serverId,
+  }) => _withControl(endpoint, (control) {
+    final nameBytes = utf8.encode(name);
+    final nameBuffer = calloc<Uint8>(nameBytes.length);
+    final identity = calloc<Uint64>();
+    try {
+      nameBuffer.asTypedList(nameBytes.length).setAll(0, nameBytes);
+      _check(
+        'create session',
+        _abi.create(control, nameBuffer, nameBytes.length, identity),
+      );
+      return fromNativeIdentity(identity.value);
+    } finally {
+      calloc.free(identity);
+      calloc.free(nameBuffer);
+    }
+  }, serverId: serverId);
 
-  void closeSession(String endpoint, BigInt sessionId) => _withControl(
+  void closeSession(
+    String endpoint,
+    BigInt sessionId, {
+    required BigInt serverId,
+  }) => _withControl(
     endpoint,
     (control) => _check(
       'close session',
       _abi.closeSession(control, toNativeIdentity(sessionId)),
     ),
+    serverId: serverId,
   );
 
-  BigInt createInstance(String endpoint, InstanceLaunch launch) =>
-      _withControl(endpoint, (control) {
-        _validateGeometry(launch);
-        final shellBytes = utf8.encode(launch.shell);
-        final commandBytes = launch.command == null
-            ? null
-            : utf8.encode(launch.command!);
-        final cwdBytes = launch.cwd == null ? null : utf8.encode(launch.cwd!);
-        final shell = calloc<Uint8>(shellBytes.length);
-        final command = commandBytes == null
-            ? Pointer<Uint8>.fromAddress(0)
-            : calloc<Uint8>(commandBytes.length);
-        final cwd = cwdBytes == null
-            ? Pointer<Uint8>.fromAddress(0)
-            : calloc<Uint8>(cwdBytes.length);
-        final request = calloc<_Launch>();
-        final identity = calloc<_Identity>();
-        try {
-          shell.asTypedList(shellBytes.length).setAll(0, shellBytes);
-          if (commandBytes != null) {
-            command.asTypedList(commandBytes.length).setAll(0, commandBytes);
-          }
-          if (cwdBytes != null) {
-            cwd.asTypedList(cwdBytes.length).setAll(0, cwdBytes);
-          }
-          request.ref
-            ..sessionId = toNativeIdentity(launch.sessionId)
-            ..rows = launch.rows
-            ..columns = launch.columns
-            ..historyRows = launch.historyRows
-            ..reserved = 0
-            ..shell = shell
-            ..shellLength = shellBytes.length
-            ..command = command
-            ..commandLength = commandBytes?.length ?? 0
-            ..cwd = cwd
-            ..cwdLength = cwdBytes?.length ?? 0;
-          _check(
-            'create instance',
-            _abi.createInstance(control, request, identity),
-          );
-          return fromNativeIdentity(identity.ref.instanceId);
-        } finally {
-          calloc.free(identity);
-          calloc.free(request);
-          calloc.free(cwd);
-          calloc.free(command);
-          calloc.free(shell);
-        }
-      });
+  BigInt createInstance(
+    String endpoint,
+    InstanceLaunch launch, {
+    required BigInt serverId,
+  }) => _withControl(endpoint, (control) {
+    _validateGeometry(launch);
+    final shellBytes = utf8.encode(launch.shell);
+    final commandBytes = launch.command == null
+        ? null
+        : utf8.encode(launch.command!);
+    final cwdBytes = launch.cwd == null ? null : utf8.encode(launch.cwd!);
+    final shell = calloc<Uint8>(shellBytes.length);
+    final command = commandBytes == null
+        ? Pointer<Uint8>.fromAddress(0)
+        : calloc<Uint8>(commandBytes.length);
+    final cwd = cwdBytes == null
+        ? Pointer<Uint8>.fromAddress(0)
+        : calloc<Uint8>(cwdBytes.length);
+    final request = calloc<_Launch>();
+    final identity = calloc<_Identity>();
+    try {
+      shell.asTypedList(shellBytes.length).setAll(0, shellBytes);
+      if (commandBytes != null) {
+        command.asTypedList(commandBytes.length).setAll(0, commandBytes);
+      }
+      if (cwdBytes != null) {
+        cwd.asTypedList(cwdBytes.length).setAll(0, cwdBytes);
+      }
+      request.ref
+        ..sessionId = toNativeIdentity(launch.sessionId)
+        ..rows = launch.rows
+        ..columns = launch.columns
+        ..historyRows = launch.historyRows
+        ..reserved = 0
+        ..shell = shell
+        ..shellLength = shellBytes.length
+        ..command = command
+        ..commandLength = commandBytes?.length ?? 0
+        ..cwd = cwd
+        ..cwdLength = cwdBytes?.length ?? 0;
+      _check(
+        'create instance',
+        _abi.createInstance(control, request, identity),
+      );
+      return fromNativeIdentity(identity.ref.instanceId);
+    } finally {
+      calloc.free(identity);
+      calloc.free(request);
+      calloc.free(cwd);
+      calloc.free(command);
+      calloc.free(shell);
+    }
+  }, serverId: serverId);
 
-  void closeInstance(String endpoint, BigInt sessionId, BigInt instanceId) =>
-      _withControl(endpoint, (control) {
-        final identity = calloc<_Identity>();
-        try {
-          identity.ref
-            ..sessionId = toNativeIdentity(sessionId)
-            ..instanceId = toNativeIdentity(instanceId);
-          _check('close instance', _abi.closeInstance(control, identity.ref));
-        } finally {
-          calloc.free(identity);
-        }
-      });
+  void closeInstance(
+    String endpoint,
+    BigInt sessionId,
+    BigInt instanceId, {
+    required BigInt serverId,
+  }) => _withControl(endpoint, (control) {
+    final identity = calloc<_Identity>();
+    try {
+      identity.ref
+        ..sessionId = toNativeIdentity(sessionId)
+        ..instanceId = toNativeIdentity(instanceId);
+      _check('close instance', _abi.closeInstance(control, identity.ref));
+    } finally {
+      calloc.free(identity);
+    }
+  }, serverId: serverId);
 
-  T _withControl<T>(String endpoint, T Function(Pointer<Void>) transaction) {
+  T _withControl<T>(
+    String endpoint,
+    T Function(Pointer<Void>) transaction, {
+    BigInt? serverId,
+  }) {
+    if (serverId != null) toNativeIdentity(serverId);
     final endpointBytes = utf8.encode(endpoint);
+    if (endpointBytes.isEmpty || endpointBytes.length > 1024) {
+      throw ArgumentError.value(
+        endpoint,
+        'endpoint',
+        'must fit 1..1024 UTF-8 bytes',
+      );
+    }
+    // Resolve the complete ABI before allocating handles: failed library loading
+    // must not rethrow from finally before those allocations can be freed.
+    final abi = _abi;
     final address = calloc<Uint8>(endpointBytes.length);
     final control = calloc<Pointer<Void>>();
     try {
       address.asTypedList(endpointBytes.length).setAll(0, endpointBytes);
       _check(
         'open',
-        _abi.open(_abiVersion, address, endpointBytes.length, nullptr, control),
+        abi.open(_abiVersion, address, endpointBytes.length, nullptr, control),
       );
+      if (serverId != null) {
+        final status = calloc<_Status>();
+        try {
+          _check('status', abi.status(control.value, status));
+          if (fromNativeIdentity(status.ref.serverId) != serverId) {
+            // HSC_STALE_SERVER: reject before the mutation on this exact connection.
+            throw const ServerClientFailure('server incarnation', 9);
+          }
+        } finally {
+          calloc.free(status);
+        }
+      }
       return transaction(control.value);
     } finally {
-      _abi.close(control);
+      abi.close(control);
       calloc.free(control);
       calloc.free(address);
     }

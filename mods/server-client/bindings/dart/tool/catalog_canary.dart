@@ -15,8 +15,20 @@ Future<void> main(List<String> arguments) async {
   final client = const ServerClient();
   final endpoint = arguments.single;
   final before = await client.readTree(endpoint);
+  final staleServer = before.serverId == BigInt.one ? BigInt.two : BigInt.one;
+  await rejectStale(
+    () =>
+        client.createSession(endpoint, 'must_not_exist', serverId: staleServer),
+  );
+  final rejected = await client.readTree(endpoint);
+  if (rejected.revision != before.revision)
+    throw StateError('Stale create mutated catalog');
   final name = 'dart_canary_${DateTime.now().microsecondsSinceEpoch}';
-  final id = await client.createSession(endpoint, name);
+  final id = await client.createSession(
+    endpoint,
+    name,
+    serverId: before.serverId,
+  );
   BigInt? instanceId;
   try {
     final during = await client.readTree(endpoint);
@@ -36,7 +48,37 @@ Future<void> main(List<String> arguments) async {
         columns: 80,
         historyRows: 128,
       ),
+      serverId: before.serverId,
     );
+    final beforeReject = await client.readTree(endpoint);
+    await rejectStale(
+      () => client.createInstance(
+        endpoint,
+        InstanceLaunch(
+          sessionId: id,
+          shell: '/bin/sh',
+          rows: 24,
+          columns: 80,
+          historyRows: 128,
+        ),
+        serverId: staleServer,
+      ),
+    );
+    await rejectStale(
+      () => client.closeInstance(
+        endpoint,
+        id,
+        instanceId!,
+        serverId: staleServer,
+      ),
+    );
+    await rejectStale(
+      () => client.closeSession(endpoint, id, serverId: staleServer),
+    );
+    final afterReject = await client.readTree(endpoint);
+    if (afterReject.revision != beforeReject.revision) {
+      throw StateError('Stale mutation changed catalog');
+    }
     final running = await client.readTree(endpoint);
     if (!running.sessions.any(
       (session) =>
@@ -49,9 +91,14 @@ Future<void> main(List<String> arguments) async {
     }
   } finally {
     if (instanceId != null) {
-      await client.closeInstance(endpoint, id, instanceId);
+      await client.closeInstance(
+        endpoint,
+        id,
+        instanceId,
+        serverId: before.serverId,
+      );
     }
-    await client.closeSession(endpoint, id);
+    await client.closeSession(endpoint, id, serverId: before.serverId);
   }
   final after = await client.readTree(endpoint);
   if (after.sessions.any((session) => session.id == id)) {
@@ -66,6 +113,17 @@ Future<void> main(List<String> arguments) async {
       'revision_before': '${before.revision}',
       'revision_after': '${after.revision}',
       'native_client': true,
+      'stale_mutations_rejected': 4,
     }),
   );
+}
+
+Future<void> rejectStale(Future<Object?> Function() operation) async {
+  try {
+    await operation();
+  } on ServerClientFailure catch (error) {
+    if (error.status == 9) return;
+    rethrow;
+  }
+  throw StateError('Stale mutation was accepted');
 }

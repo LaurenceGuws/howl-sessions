@@ -35,6 +35,7 @@ Future<void> main(List<String> args) async {
   final session = await client.createSession(
     endpoint,
     'attachment_canary_${DateTime.now().microsecondsSinceEpoch}',
+    serverId: tree.serverId,
   );
   BigInt? instance;
   try {
@@ -47,6 +48,7 @@ Future<void> main(List<String> args) async {
         columns: 80,
         historyRows: 128,
       ),
+      serverId: tree.serverId,
     );
     final attachment = NativeTerminalAttachment.connect(
       endpoint,
@@ -317,8 +319,13 @@ Future<void> main(List<String> args) async {
     }
   } finally {
     if (instance != null) {
-      await client.closeInstance(endpoint, session, instance);
+      await client.closeInstance(
+        endpoint,
+        session,
+        instance,
+        serverId: tree.serverId,
+      );
     }
-    await client.closeSession(endpoint, session);
+    await client.closeSession(endpoint, session, serverId: tree.serverId);
   }
 }

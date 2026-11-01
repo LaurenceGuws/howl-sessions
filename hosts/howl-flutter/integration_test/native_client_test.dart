@@ -21,7 +21,11 @@ void main() {
     expect(before.serverId, greaterThan(BigInt.zero));
 
     final name = 'android_canary_${DateTime.now().microsecondsSinceEpoch}';
-    final sessionId = await client.createSession(endpoint, name);
+    final sessionId = await client.createSession(
+      endpoint,
+      name,
+      serverId: before.serverId,
+    );
     BigInt? instanceId;
     try {
       final created = await client.readTree(endpoint);
@@ -43,6 +47,7 @@ void main() {
           columns: 80,
           historyRows: 128,
         ),
+        serverId: before.serverId,
       );
       final running = await client.readTree(endpoint);
       expect(running.serverId, before.serverId);
@@ -130,9 +135,14 @@ void main() {
       }
     } finally {
       if (instanceId != null) {
-        await client.closeInstance(endpoint, sessionId, instanceId);
+        await client.closeInstance(
+          endpoint,
+          sessionId,
+          instanceId,
+          serverId: before.serverId,
+        );
       }
-      await client.closeSession(endpoint, sessionId);
+      await client.closeSession(endpoint, sessionId, serverId: before.serverId);
     }
 
     final after = await client.readTree(endpoint);
