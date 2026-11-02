@@ -31,6 +31,14 @@ boundaries are established.
   interrupt is freed. IME commits travel as UTF-8 text; named and modified
   physical keys travel as native press/repeat/release transitions. Software
   Backspace uses private IME editing guards that never reach the Server.
+  The host owns a delta TextInput connection rather than resetting a hidden
+  TextField after each character. Queued platform deltas send only their actual
+  insertion, even when their old text predates a reset. Preedit stays local until
+  commit, with a 4096 UTF-16-unit bound; one callback accepts at most 64 deltas.
+  Smart quotes/dashes, prediction and IME learning are disabled. Unsupported
+  replacement of already transmitted text, multi-character deletion, oversized
+  input and a platform that does not provide deltas stop input explicitly.
+  Reconnect abandons pending input rather than guessing or replaying it.
   Terminal input has a bounded ordered queue and explicit reconnect, without
   replaying ambiguous sends. Geometry has its own exact-identity Client
   attachment. The drawable rectangle and native Render cell metrics determine
@@ -99,16 +107,26 @@ still needs its own attended Note10 device canary.
 Native graphics manifests are currently rejected explicitly; a full image
 fetch/refill lane is not silently substituted.
 
-The Linux runner now builds with Ninja from the installed Android SDK CMake
-package (supplied on the build command's PATH). A private KWin UI canary covers
-catalog/create, full terminal display, explicit sizing takeover, Back/detach,
-and reattach with the process still alive. The composed native library is
-currently supplied through HOWL_SERVER_CLIENT_LIBRARY for that canary; a
-self-contained Linux bundle is still pending. The same canary exposed an
-existing rapid-typing IME defect: queued cumulative edit snapshots can replay
-already-sent prefixes when the hidden editor is reset after every character.
-Slow physical typing works; rapid input is not yet qualified. iOS host
-packaging is also pending.
+## Linux bundle
+
+Run `./build-linux.sh debug` (or `profile`/`release`) with Ninja on PATH. If Ninja
+is already installed with the Android SDK, a build-local example is
+`PATH=/opt/android-sdk/cmake/3.22.1/bin:$PATH ./build-linux.sh debug`.
+The script composes the exact native Client/Render owners, builds Flutter and
+puts `libhowl_sessions_native.so` in the bundle's `lib/`, verifying both owners'
+exports. The executable resolves that library relative to itself; no environment
+library override is required. This is a host-built Linux bundle, not a portable
+cross-distribution release. Font selection still uses the explicit HOWL_FONT_PATH
+or the existing fontconfig path.
+
+A real private KWin 430×900 canary covers catalog/create, full terminal display,
+explicit sizing takeover, Back/detach and reattach with the process still alive.
+It first exposed cumulative input replay at 1 ms key intervals with the hidden
+TextField. The delta-owned replacement passes that same rapid-typing reproducer,
+physical Backspace and Ctrl+C interruption. Unicode/composition are model-tested;
+WMIO's private EIS typing surface is ASCII-only, so this is not a real mobile IME
+claim. The changed Android app is build-qualified, with device keyboard/runtime
+qualification still pending. iOS host packaging remains unqualified.
 
 ## Android native canary
 

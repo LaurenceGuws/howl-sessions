@@ -29,11 +29,10 @@ final class TerminalInputBar extends StatefulWidget {
   State<TerminalInputBar> createState() => _TerminalInputBarState();
 }
 
-final class _TerminalInputBarState extends State<TerminalInputBar> {
+final class _TerminalInputBarState extends State<TerminalInputBar>
+    with TextInputClient, DeltaTextInputClient {
   final _ime = TerminalImeBuffer();
-  late final TextEditingController _text = TextEditingController.fromValue(
-    _ime.value,
-  );
+  TextInputConnection? _editingConnection;
   late final FocusNode _focus = FocusNode(onKeyEvent: _onKeyEvent)
     ..addListener(_onFocusChanged);
   late final TerminalSoftwareRepeat _softwareRepeat = TerminalSoftwareRepeat(
@@ -47,14 +46,12 @@ final class _TerminalInputBarState extends State<TerminalInputBar> {
   String? _failure;
   int _generation = 0;
   int _queuedBytes = 0;
-  bool _clearing = false;
   bool _connecting = true;
   bool _draining = false;
 
   @override
   void initState() {
     super.initState();
-    _text.addListener(_onEditingChanged);
     if (widget.running) unawaited(_connect());
   }
 
@@ -81,7 +78,7 @@ final class _TerminalInputBarState extends State<TerminalInputBar> {
     _queue.clear();
     _queuedBytes = 0;
     _terminateHeldInput(sendRelease: false);
-    _clearEditing();
+    _closeEditing();
     if (input != null) {
       unawaited(
         input.close().catchError((Object error) {
@@ -108,7 +105,7 @@ final class _TerminalInputBarState extends State<TerminalInputBar> {
     _queue.clear();
     _queuedBytes = 0;
     _terminateHeldInput(sendRelease: false);
-    _clearEditing(); // Never replay ambiguous input after reconnect.
+    _closeEditing(); // Never replay ambiguous input after reconnect.
     TerminalTextInput? opening;
     setState(() {
       _connecting = true;
@@ -134,6 +131,7 @@ final class _TerminalInputBarState extends State<TerminalInputBar> {
       setState(() {
         _connecting = false;
       });
+      _openEditing();
     } catch (error) {
       var message = error.toString();
       if (opening != null && identical(_input, opening)) {
@@ -153,29 +151,107 @@ final class _TerminalInputBarState extends State<TerminalInputBar> {
     }
   }
 
-  void _clearEditing() {
-    _clearing = true;
-    _ime.reset();
-    _text.value = _ime.value;
-    _clearing = false;
+  void _openEditing() {
+    if (!_enabled || !_focus.hasFocus) return;
+    if (_editingConnection?.attached != true) {
+      _ime.reset();
+      _editingConnection = TextInput.attach(
+        this,
+        const TextInputConfiguration(
+          enableDeltaModel: true,
+          autocorrect: false,
+          enableSuggestions: false,
+          enableInteractiveSelection: false,
+          enableIMEPersonalizedLearning: false,
+          enableInlinePrediction: false,
+          smartDashesType: SmartDashesType.disabled,
+          smartQuotesType: SmartQuotesType.disabled,
+          keyboardAppearance: Brightness.dark,
+          inputAction: TextInputAction.send,
+        ),
+      );
+      _editingConnection!.setEditingState(_ime.value);
+    }
+    final box = context.findRenderObject();
+    if (box is RenderBox && box.hasSize) {
+      _editingConnection!.setEditableSizeAndTransform(
+        box.size,
+        box.getTransformTo(null),
+      );
+      _editingConnection!.setCaretRect(const Rect.fromLTWH(12, 4, 1, 20));
+    }
+    _editingConnection!.show();
   }
 
-  void _onEditingChanged() {
-    if (_clearing) return;
-    final action = _ime.update(_text.value);
-    if (action == null) {
-      if (_text.value != _ime.value) _clearEditing();
-      return;
-    }
-    if (action.text case final committed?) {
-      final size =
-          committed.length * 4; // UTF-8 upper bound, before allocation.
-      _enqueue((input) => input.sendText(committed), size);
-    } else if (action.key case final key?) {
-      _tapKey(key);
-    }
-    _clearEditing();
+  void _closeEditing() {
+    _editingConnection?.close();
+    _editingConnection = null;
+    _ime.reset();
   }
+
+  @override
+  TextEditingValue get currentTextEditingValue => _ime.value;
+  @override
+  AutofillScope? get currentAutofillScope => null;
+
+  @override
+  void updateEditingValueWithDeltas(List<TextEditingDelta> deltas) {
+    if (!_enabled || !_focus.hasFocus) return;
+    try {
+      if (deltas.length > 64) {
+        throw const FormatException('Too many terminal IME edits');
+      }
+      for (final delta in deltas) {
+        final action = _ime.updateDelta(delta);
+        if (action?.text case final committed?) {
+          if (!_enqueue(
+            (input) => input.sendText(committed),
+            committed.length * 4,
+          )) {
+            break;
+          }
+        } else if (action?.key case final key?) {
+          _tapKey(key);
+        }
+      }
+      _editingConnection?.setEditingState(_ime.value);
+      setState(() {});
+    } catch (error) {
+      _closeEditing();
+      _terminateHeldInput(sendRelease: false);
+      setState(() => _failure = 'Terminal input stopped; reconnect: $error');
+    }
+  }
+
+  @override
+  void updateEditingValue(TextEditingValue value) {
+    // Full snapshots lose the edit identity when reset and typing race.
+    _closeEditing();
+    setState(() => _failure = 'Platform did not provide terminal input deltas');
+  }
+
+  @override
+  void performAction(TextInputAction action) {
+    if (action == TextInputAction.send ||
+        action == TextInputAction.done ||
+        action == TextInputAction.newline) {
+      _tapKey(TerminalNamedKey.enter);
+    }
+  }
+
+  @override
+  void connectionClosed() {
+    _editingConnection = null;
+    _ime.reset();
+    _terminateHeldInput();
+  }
+
+  @override
+  void performPrivateCommand(String action, Map<String, dynamic> data) {}
+  @override
+  void updateFloatingCursor(RawFloatingCursorPoint point) {}
+  @override
+  void showAutocorrectionPromptRect(int start, int end) {}
 
   bool get _enabled =>
       widget.running && !_connecting && _failure == null && _input != null;
@@ -224,8 +300,13 @@ final class _TerminalInputBarState extends State<TerminalInputBar> {
   }
 
   void _onFocusChanged() {
-    if (_focus.hasFocus) return;
-    _terminateHeldInput();
+    if (_focus.hasFocus) {
+      _openEditing();
+    } else {
+      _closeEditing();
+      _terminateHeldInput();
+    }
+    if (mounted) setState(() {});
   }
 
   void _named(
@@ -267,7 +348,7 @@ final class _TerminalInputBarState extends State<TerminalInputBar> {
   KeyEventResult _onKeyEvent(FocusNode node, KeyEvent event) {
     if (!_enabled) return KeyEventResult.ignored;
     // During IME preedit arrows/backspace belong to the composition editor.
-    final composing = _text.value.composing;
+    final composing = _ime.value.composing;
     if (composing.isValid && !composing.isCollapsed) {
       return KeyEventResult.ignored;
     }
@@ -337,7 +418,7 @@ final class _TerminalInputBarState extends State<TerminalInputBar> {
         }),
       );
     }
-    _text.dispose();
+    _closeEditing();
     _focus.dispose();
     super.dispose();
   }
@@ -358,27 +439,29 @@ final class _TerminalInputBarState extends State<TerminalInputBar> {
           Row(
             children: [
               Expanded(
-                child: TextField(
-                  controller: _text,
+                child: Focus(
                   focusNode: _focus,
-                  enabled: _enabled,
-                  // The terminal Canvas, not an editable document, shows ink.
-                  style: const TextStyle(color: Colors.transparent),
-                  cursorColor: Colors.transparent,
-                  showCursor: false,
-                  enableInteractiveSelection: false,
-                  autocorrect: false,
-                  enableSuggestions: false,
-                  maxLines: 1,
-                  maxLength: 4096,
-                  textInputAction: TextInputAction.send,
-                  onTap: _clearEditing,
-                  decoration: const InputDecoration(
-                    isDense: true,
-                    labelText: 'Terminal input',
-                    counterText: '',
+                  child: Semantics(
+                    textField: true,
+                    label: 'Terminal input',
+                    child: InkWell(
+                      onTap: !_enabled
+                          ? null
+                          : () {
+                              _focus.requestFocus();
+                              _openEditing();
+                            },
+                      child: InputDecorator(
+                        isFocused: _focus.hasFocus,
+                        decoration: InputDecoration(
+                          isDense: true,
+                          enabled: _enabled,
+                          labelText: 'Terminal input',
+                        ),
+                        child: SizedBox(height: 24, child: Text(_ime.preedit)),
+                      ),
+                    ),
                   ),
-                  onSubmitted: (_) => _tapKey(TerminalNamedKey.enter),
                 ),
               ),
               IconButton(

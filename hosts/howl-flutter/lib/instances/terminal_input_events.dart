@@ -39,34 +39,97 @@ final class TerminalSoftwareRepeat {
 final class TerminalImeBuffer {
   static const left = '\uE000';
   static const right = '\uE001';
+  static const maxCodeUnits = 4096;
   static const _canonical = TextEditingValue(
     text: '$left$right',
     selection: TextSelection.collapsed(offset: 1),
   );
 
   TextEditingValue _value = _canonical;
+  String? _compositionPrefix;
+  String? _compositionSuffix;
   TextEditingValue get value => _value;
+  String get preedit =>
+      _value.composing.isValid && !_value.composing.isCollapsed
+      ? _value.composing.textInside(_value.text)
+      : '';
 
-  void reset() => _value = _canonical;
-
-  /// Returns either one committed UTF-8 segment or one native editing key.
-  /// During composition, all intermediate updates stay in the IME.
-  ({String? text, TerminalNamedKey? key})? update(TextEditingValue next) {
-    _value = next;
-    if (next.composing.isValid && !next.composing.isCollapsed) return null;
-    final text = next.text;
+  void reset() {
     _value = _canonical;
-    if (text == right) return (text: null, key: TerminalNamedKey.backspace);
-    if (text == left) return (text: null, key: TerminalNamedKey.delete);
-    String? committed;
-    if (text.startsWith(left) && text.endsWith(right)) {
-      committed = text.substring(1, text.length - 1);
-    } else if (!text.contains(left) && !text.contains(right)) {
-      // Some IMEs replace the entire editable state on committing a word.
-      committed = text;
+    _compositionPrefix = null;
+    _compositionSuffix = null;
+  }
+
+  /// Engine updates are asynchronous. A delta carries its actual insertion;
+  /// its oldText may still include text committed before our reset arrived.
+  /// Never resend that prefix as if it were new terminal input.
+  ({String? text, TerminalNamedKey? key})? updateDelta(TextEditingDelta delta) {
+    if (delta.oldText.length > maxCodeUnits) {
+      throw const FormatException('Terminal IME context exceeded its bound');
     }
-    if (committed == null || committed.isEmpty) return null;
-    return (text: committed, key: null);
+    final next = delta.apply(_value);
+    if (next.text.length > maxCodeUnits ||
+        !next.selection.isValid ||
+        next.selection.end > next.text.length ||
+        (next.composing.isValid && next.composing.end > next.text.length)) {
+      throw const FormatException('Invalid or oversized terminal IME edit');
+    }
+    if (next.composing.isValid && !next.composing.isCollapsed) {
+      _compositionPrefix ??= next.composing.textBefore(next.text);
+      _compositionSuffix ??= next.composing.textAfter(next.text);
+      _value = next;
+      return null;
+    }
+    final prefix = _compositionPrefix;
+    final suffix = _compositionSuffix;
+    reset();
+    if (prefix != null && suffix != null) {
+      if (!next.text.startsWith(prefix) ||
+          !next.text.endsWith(suffix) ||
+          next.text.length < prefix.length + suffix.length) {
+        throw const FormatException('IME changed text outside its composition');
+      }
+      final committed = next.text.substring(
+        prefix.length,
+        next.text.length - suffix.length,
+      );
+      return _commit(committed);
+    }
+    if (delta is TextEditingDeltaInsertion) {
+      return _commit(delta.textInserted);
+    }
+    if (delta is TextEditingDeltaNonTextUpdate) return null;
+    if (delta is TextEditingDeltaDeletion) {
+      // Surrounding-text deletion of a guard represents one terminal key.
+      // A queued deletion of ordinary committed text also deletes one key.
+      final deleted = delta.textDeleted;
+      if (deleted == right) return (text: null, key: TerminalNamedKey.delete);
+      if (deleted == left ||
+          (deleted.runes.length == 1 &&
+              delta.oldText.endsWith(right) &&
+              delta.deletedRange.end == delta.oldText.length - 1)) {
+        return (text: null, key: TerminalNamedKey.backspace);
+      }
+      throw const FormatException(
+        'Unsupported multi-character terminal IME deletion',
+      );
+    }
+    if (delta is TextEditingDeltaReplacement &&
+        (delta.textReplaced.isEmpty || delta.textReplaced == '$left$right')) {
+      return _commit(delta.replacementText);
+    }
+    // Autocorrection/selection replacement of already transmitted text cannot
+    // be faithfully replayed against an arbitrary terminal program.
+    throw const FormatException(
+      'IME replacement requires reconnecting terminal input',
+    );
+  }
+
+  ({String? text, TerminalNamedKey? key})? _commit(String text) {
+    if (text.contains(left) || text.contains(right)) {
+      throw const FormatException('IME edit contains reserved terminal guards');
+    }
+    return text.isEmpty ? null : (text: text, key: null);
   }
 }
 

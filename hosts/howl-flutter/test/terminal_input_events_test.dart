@@ -4,53 +4,189 @@ import 'package:howl_server_client/howl_server_client.dart';
 import 'package:howl_sessions/instances/terminal_input_events.dart';
 
 void main() {
-  test('IME preedit is not emitted as text before commit', () {
+  TextEditingDeltaInsertion insert(
+    String old,
+    String text,
+    int offset, {
+    TextRange composing = TextRange.empty,
+  }) => TextEditingDeltaInsertion(
+    oldText: old,
+    textInserted: text,
+    insertionOffset: offset,
+    selection: TextSelection.collapsed(offset: offset + text.length),
+    composing: composing,
+  );
+
+  test('Queued cumulative platform edits emit each insertion exactly once', () {
     final ime = TerminalImeBuffer();
-    expect(ime.value.text, '\uE000\uE001');
+    var remote = '\uE000\uE001';
+    final committed = StringBuffer();
+    for (final char in 'printf hello'.split('')) {
+      final action = ime.updateDelta(insert(remote, char, remote.length - 1));
+      committed.write(action?.text);
+      remote = '${remote.substring(0, remote.length - 1)}$char\uE001';
+      expect(ime.value.text, '\uE000\uE001');
+    }
+    expect(committed.toString(), 'printf hello');
+    // The engine finally observes reset. Repeated characters remain real input.
+    expect(ime.updateDelta(insert('\uE000\uE001', 'o', 1))?.text, 'o');
+    expect(ime.updateDelta(insert('\uE000o\uE001', 'o', 2))?.text, 'o');
+  });
+
+  test('IME preedit is emitted once on composition commit', () {
+    final ime = TerminalImeBuffer();
     expect(
-      ime.update(
-        const TextEditingValue(
-          text: '\uE000e\uE001',
+      ime.updateDelta(
+        insert(
+          '\uE000\uE001',
+          'e',
+          1,
+          composing: const TextRange(start: 1, end: 2),
+        ),
+      ),
+      isNull,
+    );
+    expect(ime.preedit, 'e');
+    expect(
+      ime.updateDelta(
+        const TextEditingDeltaReplacement(
+          oldText: '\uE000e\uE001',
+          replacementText: 'é',
+          replacedRange: TextRange(start: 1, end: 2),
           selection: TextSelection.collapsed(offset: 2),
-          composing: TextRange(start: 1, end: 2),
+          composing: TextRange.empty,
+        ),
+      ),
+      (text: 'é', key: null),
+    );
+    expect(ime.preedit, '');
+    expect(
+      ime.updateDelta(
+        const TextEditingDeltaNonTextUpdate(
+          oldText: '\uE000é\uE001',
+          selection: TextSelection.collapsed(offset: 2),
+          composing: TextRange.empty,
+        ),
+      ),
+      isNull,
+    );
+  });
+
+  test('Composition preserves an already committed queued prefix', () {
+    final ime = TerminalImeBuffer();
+    expect(ime.updateDelta(insert('\uE000\uE001', 'a', 1))?.text, 'a');
+    expect(
+      ime.updateDelta(
+        insert(
+          '\uE000a\uE001',
+          '中',
+          2,
+          composing: const TextRange(start: 2, end: 3),
         ),
       ),
       isNull,
     );
     expect(
-      ime.update(
-        const TextEditingValue(
-          text: '\uE000é\uE001',
-          selection: TextSelection.collapsed(offset: 2),
-        ),
-      ),
-      (text: 'é', key: null),
+      ime
+          .updateDelta(
+            const TextEditingDeltaNonTextUpdate(
+              oldText: '\uE000a中\uE001',
+              selection: TextSelection.collapsed(offset: 3),
+              composing: TextRange.empty,
+            ),
+          )
+          ?.text,
+      '中',
     );
-    expect(ime.value.text, '\uE000\uE001');
-    expect(
-      ime.update(
-        const TextEditingValue(
-          text: '\uE000x\uE001',
-          selection: TextSelection.collapsed(offset: 2),
-        ),
-      ),
-      (text: 'x', key: null),
-    );
-    expect(ime.update(ime.value), isNull);
   });
 
-  test('software deletion is one semantic key, never guard text', () {
+  test('Cancelled composition sends nothing; reset abandons preedit', () {
     final ime = TerminalImeBuffer();
-    expect(ime.update(const TextEditingValue(text: '\uE001')), (
-      text: null,
-      key: TerminalNamedKey.backspace,
-    ));
-    expect(ime.value.text, '\uE000\uE001');
-    expect(ime.update(const TextEditingValue(text: '\uE000')), (
-      text: null,
-      key: TerminalNamedKey.delete,
-    ));
-    expect(ime.update(TextEditingValue.empty), isNull);
+    ime.updateDelta(
+      insert(
+        '\uE000\uE001',
+        'e',
+        1,
+        composing: const TextRange(start: 1, end: 2),
+      ),
+    );
+    expect(
+      ime.updateDelta(
+        const TextEditingDeltaDeletion(
+          oldText: '\uE000e\uE001',
+          deletedRange: TextRange(start: 1, end: 2),
+          selection: TextSelection.collapsed(offset: 1),
+          composing: TextRange.empty,
+        ),
+      ),
+      isNull,
+    );
+    ime.updateDelta(
+      insert(
+        '\uE000\uE001',
+        'e',
+        1,
+        composing: const TextRange(start: 1, end: 2),
+      ),
+    );
+    ime.reset();
+    expect(ime.preedit, '');
+    expect(ime.updateDelta(insert('\uE000\uE001', 'x', 1))?.text, 'x');
+  });
+
+  test('Software deletion uses semantic keys, never guard text', () {
+    final ime = TerminalImeBuffer();
+    expect(
+      ime.updateDelta(
+        const TextEditingDeltaDeletion(
+          oldText: '\uE000\uE001',
+          deletedRange: TextRange(start: 0, end: 1),
+          selection: TextSelection.collapsed(offset: 0),
+          composing: TextRange.empty,
+        ),
+      ),
+      (text: null, key: TerminalNamedKey.backspace),
+    );
+    expect(
+      ime.updateDelta(
+        const TextEditingDeltaDeletion(
+          oldText: '\uE000\uE001',
+          deletedRange: TextRange(start: 1, end: 2),
+          selection: TextSelection.collapsed(offset: 1),
+          composing: TextRange.empty,
+        ),
+      ),
+      (text: null, key: TerminalNamedKey.delete),
+    );
+  });
+
+  test('Oversize edits and replacement of committed text fail explicitly', () {
+    final ime = TerminalImeBuffer();
+    expect(
+      () => ime.updateDelta(insert('\uE000\uE001', 'x' * 4096, 1)),
+      throwsFormatException,
+    );
+    expect(
+      () => ime.updateDelta(
+        const TextEditingDeltaReplacement(
+          oldText: '\uE000word\uE001',
+          replacementText: 'other',
+          replacedRange: TextRange(start: 1, end: 5),
+          selection: TextSelection.collapsed(offset: 6),
+          composing: TextRange.empty,
+        ),
+      ),
+      throwsFormatException,
+    );
+  });
+
+  test('Unicode commits preserve scalars and reserved guards never leak', () {
+    final ime = TerminalImeBuffer();
+    expect(ime.updateDelta(insert('\uE000\uE001', 'é中😀', 1))?.text, 'é中😀');
+    expect(
+      () => ime.updateDelta(insert('\uE000\uE001', '\uE000', 1)),
+      throwsFormatException,
+    );
   });
 
   test('plain keys are IME commits; Ctrl+C is a Unicode key transition', () {
