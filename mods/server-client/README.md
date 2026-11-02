@@ -47,3 +47,23 @@ lossless C/Dart identities through the signed-bit boundary and full unsigned
 range. The text preview remains diagnostic; the Flutter product's Render
 observer consumes native snapshots synchronously with the exact composed ABI.
 Terminal attachments remain distinct from catalog CRUD.
+
+## Dart native image ownership
+
+The Dart native attachment exposes `imageManifest` only inside its existing
+`observeWith` snapshot borrow, and `fetchImage` on that same serialized
+attachment. It copies exact image ID/generation/extent and RGBA8 bytes before
+releasing the C image owner. A copied result can outlive both snapshot and
+attachment. The manifest limit is the protocol's 256 identities; each fetched
+image is bounded by `HSC_MAX_IMAGE_BYTES` (16 MiB). Extents are checked by division
+before multiplication or pixel copying. Manifest membership is not visibility
+or Render residency; the consumer still selects visible resources and owns its
+aggregate cache/decoded-image budget.
+
+The native C fixture and `bindings/dart/tool/image_canary.dart ENDPOINT` prove
+fetching while an immutable snapshot is held, exact RGBA copying, stale-generation
+rejection with the completed connection still usable, and cancellation before
+fetch. `tool/image_identity_check.dart` covers bounds without a live Server.
+These additions use existing C ABI v1 functions. They do not enable graphics in
+Flutter or change Render's backend residency contract; that two-phase staging
+work remains separate.

@@ -154,10 +154,28 @@ int hsc_external_probe(const uint8_t *endpoint, size_t endpoint_len, uint64_t se
     CHECK(hsc_snapshot_placement(graphics_snapshot,0,&placement)==HSC_OK &&
           placement.image_id==image_identity.image_id && placement.generation==image_identity.generation);
     CHECK(hsc_snapshot_image(graphics_snapshot,1,&image_identity)==HSC_INVALID_ARGUMENT);
+    const hsc_image_identity expected_image=image_identity;
+    const hsc_metadata expected_snapshot=metadata;
     CHECK(hsc_image_fetch(attachment,image_identity.image_id,image_identity.generation,&image)==HSC_OK);
     const uint8_t *pixels=NULL; size_t pixel_length=0;
     CHECK(hsc_image_data(image,&image_identity,&pixels,&pixel_length)==HSC_OK &&
           pixel_length==4 && pixels[0]==1 && pixels[1]==2 && pixels[2]==3 && pixels[3]==4);
+    /* Image I/O on the same serialized attachment cannot invalidate or mutate
+       the independently owned observation still borrowed by a render caller. */
+    hsc_image_identity retained_image={0};
+    hsc_metadata retained_snapshot={0};
+    hsc_placement retained_placement={0};
+    CHECK(hsc_snapshot_image(graphics_snapshot,0,&retained_image)==HSC_OK);
+    CHECK(retained_image.image_id==expected_image.image_id &&
+          retained_image.generation==expected_image.generation &&
+          retained_image.width==expected_image.width && retained_image.height==expected_image.height);
+    CHECK(hsc_snapshot_metadata(graphics_snapshot,&retained_snapshot)==HSC_OK);
+    CHECK(retained_snapshot.delivery_revision==expected_snapshot.delivery_revision &&
+          retained_snapshot.terminal_revision==expected_snapshot.terminal_revision &&
+          retained_snapshot.rows==expected_snapshot.rows && retained_snapshot.columns==expected_snapshot.columns);
+    CHECK(hsc_snapshot_placement(graphics_snapshot,0,&retained_placement)==HSC_OK &&
+          retained_placement.image_id==expected_image.image_id &&
+          retained_placement.generation==expected_image.generation);
     hsc_snapshot_release(&graphics_snapshot);
     CHECK(pixels[3]==4);
     hvt_interaction interaction={0};

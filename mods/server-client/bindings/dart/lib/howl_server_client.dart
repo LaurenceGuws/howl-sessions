@@ -18,6 +18,7 @@ export 'src/launch.dart';
 export 'src/terminal_text.dart';
 export 'src/terminal_attachments.dart';
 export 'src/terminal_keys.dart';
+export 'src/terminal_images.dart';
 
 /// Short-lived management requests, fenced to the catalog incarnation the caller saw.
 /// Implementations must never reconnect or replay an uncertain mutation implicitly.

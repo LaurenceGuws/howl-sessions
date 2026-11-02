@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:ffi';
+import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
@@ -8,6 +9,7 @@ import 'native_identity.dart';
 import 'native_library.dart';
 import 'terminal_text.dart';
 import 'terminal_keys.dart';
+import 'terminal_images.dart';
 
 const _abiVersion = 1;
 const _ok = 0;
@@ -56,6 +58,34 @@ final class _Metadata extends Struct {
   external int cursorShape;
   @Uint32()
   external int flags;
+}
+
+final class _Graphics extends Struct {
+  @Uint64()
+  external int generation;
+  @Uint64()
+  external int contentGeneration;
+  @Uint32()
+  external int cellPixelWidth;
+  @Uint32()
+  external int cellPixelHeight;
+  @Uint32()
+  external int imageCount;
+  @Uint32()
+  external int placementCount;
+}
+
+final class _ImageIdentity extends Struct {
+  @Uint64()
+  external int generation;
+  @Uint32()
+  external int id;
+  @Uint32()
+  external int width;
+  @Uint32()
+  external int height;
+  @Uint32()
+  external int reserved;
 }
 
 final class _Geometry extends Struct {
@@ -244,6 +274,43 @@ typedef _ResizeGeometryDart = int Function(
   int,
 );
 
+typedef _GraphicsNative = Uint32 Function(Pointer<Void>, Pointer<_Graphics>);
+typedef _GraphicsDart = int Function(Pointer<Void>, Pointer<_Graphics>);
+typedef _ImageIdentityNative = Uint32 Function(
+  Pointer<Void>,
+  IntPtr,
+  Pointer<_ImageIdentity>,
+);
+typedef _ImageIdentityDart = int Function(
+  Pointer<Void>,
+  int,
+  Pointer<_ImageIdentity>,
+);
+typedef _ImageFetchNative = Uint32 Function(
+  Pointer<Void>,
+  Uint32,
+  Uint64,
+  Pointer<Pointer<Void>>,
+);
+typedef _ImageFetchDart = int Function(
+  Pointer<Void>,
+  int,
+  int,
+  Pointer<Pointer<Void>>,
+);
+typedef _ImageDataNative = Uint32 Function(
+  Pointer<Void>,
+  Pointer<_ImageIdentity>,
+  Pointer<Pointer<Uint8>>,
+  Pointer<IntPtr>,
+);
+typedef _ImageDataDart = int Function(
+  Pointer<Void>,
+  Pointer<_ImageIdentity>,
+  Pointer<Pointer<Uint8>>,
+  Pointer<IntPtr>,
+);
+
 /// Exact attachment ABI from howl_server_client.h v1, not a host-owned wire.
 final class _AttachmentAbi {
   _AttachmentAbi({String? libraryPath})
@@ -290,6 +357,22 @@ final class _AttachmentAbi {
       metadata = library.lookupFunction<_MetadataNative, _MetadataDart>(
         'hsc_snapshot_metadata',
       ),
+      graphics = library.lookupFunction<_GraphicsNative, _GraphicsDart>(
+        'hsc_snapshot_graphics',
+      ),
+      imageIdentity = library
+          .lookupFunction<_ImageIdentityNative, _ImageIdentityDart>(
+            'hsc_snapshot_image',
+          ),
+      imageFetch = library.lookupFunction<_ImageFetchNative, _ImageFetchDart>(
+        'hsc_image_fetch',
+      ),
+      imageData = library.lookupFunction<_ImageDataNative, _ImageDataDart>(
+        'hsc_image_data',
+      ),
+      imageRelease = library.lookupFunction<_ReleaseNative, _ReleaseDart>(
+        'hsc_image_release',
+      ),
       row = library.lookupFunction<_RowNative, _RowDart>('hsc_snapshot_row'),
       cells = library.lookupFunction<_CellsNative, _CellsDart>(
         'hsc_snapshot_cells',
@@ -310,7 +393,9 @@ final class _AttachmentAbi {
     if (sizeOf<_Ready>() != 40 ||
         sizeOf<_Metadata>() != 64 ||
         sizeOf<_Row>() != 16 ||
-        sizeOf<_Cell>() != 56) {
+        sizeOf<_Cell>() != 56 ||
+        sizeOf<_Graphics>() != 32 ||
+        sizeOf<_ImageIdentity>() != 24) {
       throw StateError('Server client native ABI record layout mismatch');
     }
   }
@@ -327,6 +412,11 @@ final class _AttachmentAbi {
   final _ObserveCachedDart observeCached;
   final _ReleaseDart releaseSnapshot;
   final _MetadataDart metadata;
+  final _GraphicsDart graphics;
+  final _ImageIdentityDart imageIdentity;
+  final _ImageFetchDart imageFetch;
+  final _ImageDataDart imageData;
+  final _ReleaseDart imageRelease;
   final _RowDart row;
   final _CellsDart cells;
   final _ScalarsDart scalars;
@@ -498,6 +588,92 @@ final class NativeTerminalAttachment {
       calloc.free(slot);
       calloc.free(metadata);
     }
+  }
+
+  /// Copy identities only while snapshot is borrowed by observeWith. A manifest
+  /// is not proof of visibility or backend residency; the render owner chooses
+  /// which exact occurrences it needs before the caller fetches any pixels.
+  List<TerminalImageIdentity> imageManifest(Pointer<Void> snapshot) {
+    if (_released || snapshot == nullptr)
+      throw StateError('No live snapshot borrow');
+    final graphics = calloc<_Graphics>();
+    final identity = calloc<_ImageIdentity>();
+    try {
+      _check('snapshot graphics', _abi.graphics(snapshot, graphics));
+      if (graphics.ref.imageCount >
+          TerminalImageIdentity.maximumManifestImages) {
+        throw const FormatException(
+          'Terminal image manifest exceeds its bound',
+        );
+      }
+      final images = <TerminalImageIdentity>[];
+      final seen = <int>{};
+      for (var index = 0; index < graphics.ref.imageCount; index++) {
+        _check('snapshot image', _abi.imageIdentity(snapshot, index, identity));
+        final copied = _copyImageIdentity(identity.ref);
+        if (!seen.add(copied.id))
+          throw const FormatException('Duplicate terminal image identity');
+        images.add(copied);
+      }
+      return List.unmodifiable(images);
+    } finally {
+      calloc.free(identity);
+      calloc.free(graphics);
+    }
+  }
+
+  /// Synchronous, serialized I/O on this same attachment. May run inside an
+  /// observeWith borrow: native snapshots own independent immutable storage.
+  /// The native owner retires incomplete transport exchanges; never retry them.
+  TerminalImageData fetchImage(TerminalImageIdentity expected) {
+    if (_released) throw StateError('Attachment already released');
+    final expectedBytes = expected.byteLength;
+    final generation = toNativeIdentity(expected.generation);
+    final image = calloc<Pointer<Void>>();
+    final identity = calloc<_ImageIdentity>();
+    final pixels = calloc<Pointer<Uint8>>();
+    final length = calloc<IntPtr>();
+    try {
+      _check(
+        'image fetch',
+        _abi.imageFetch(_slot.value, expected.id, generation, image),
+      );
+      _check(
+        'image data',
+        _abi.imageData(image.value, identity, pixels, length),
+      );
+      final actual = _copyImageIdentity(identity.ref);
+      if (actual != expected ||
+          length.value != expectedBytes ||
+          pixels.value == nullptr) {
+        throw const FormatException(
+          'Terminal image response differs from its manifest',
+        );
+      }
+      return TerminalImageData(
+        actual,
+        Uint8List.fromList(pixels.value.asTypedList(expectedBytes)),
+      );
+    } finally {
+      _abi.imageRelease(image);
+      calloc.free(length);
+      calloc.free(pixels);
+      calloc.free(identity);
+      calloc.free(image);
+    }
+  }
+
+  TerminalImageIdentity _copyImageIdentity(_ImageIdentity native) {
+    if (native.reserved != 0)
+      throw const FormatException('Nonzero image reserved field');
+    final result = TerminalImageIdentity(
+      id: native.id,
+      generation: fromNativeIdentity(native.generation),
+      width: native.width,
+      height: native.height,
+    );
+    result.byteLength; // Validate before exposing or allocating pixels.
+    return result;
   }
 
   TerminalTextSnapshot observe({BigInt? afterRevision, int historyOffset = 0}) {
