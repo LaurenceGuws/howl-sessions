@@ -29,6 +29,14 @@ boundaries are established.
   clears old numeric selections. Failed requests are never automatically replayed;
   the error action refreshes the catalog so the operator can inspect the result.
   Create forms own their editing lifetime until the dialog route is disposed.
+  Opening Settings retains only the browser's catalog selection: the terminal
+  subtree is removed, disposing observation, input and sizing attachments. On
+  return, a fresh catalog must confirm the same Server incarnation before the
+  selected terminal is reattached. Input starts empty and sizing starts as a
+  follower. An in-flight read cannot publish into a hidden view. This is a
+  Settings-navigation guarantee; direct mobile background cancellation remains
+  a separate owner-lifecycle qualification because paused Flutter apps do not
+  necessarily render a frame to dispose their widget subtree.
 - `instances/` owns a native Render Canvas and **semantic terminal input** to one
   Instance. Separate Instance attachments isolate rendering observation from
   input. The observer borrows a native snapshot, copies canonical Render frame

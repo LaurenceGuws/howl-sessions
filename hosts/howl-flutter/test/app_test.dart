@@ -4,6 +4,8 @@ import 'package:shared_preferences_platform_interface/in_memory_shared_preferenc
 import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
 
 import 'package:howl_sessions/app.dart';
+import 'package:howl_sessions/sessions/session_browser.dart';
+import 'package:howl_sessions/instances/instance_view.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -56,4 +58,32 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('HomeCanary'), findsOneWidget);
   });
+  testWidgets(
+    'Settings retains browser state but removes hidden terminal owners',
+    (tester) async {
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.empty();
+      await tester.pumpWidget(const HowlSessionsApp());
+      await tester.pumpAndSettle();
+      final original = tester.state(find.byType(SessionBrowser));
+      await tester.tap(find.byTooltip('Settings'));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<SessionBrowser>(
+              find.byType(SessionBrowser, skipOffstage: false),
+            )
+            .active,
+        isFalse,
+      );
+      expect(find.byType(InstanceView, skipOffstage: false), findsNothing);
+      await tester.tap(find.byTooltip('Sessions'));
+      await tester.pumpAndSettle();
+      expect(tester.state(find.byType(SessionBrowser)), same(original));
+      expect(
+        tester.widget<SessionBrowser>(find.byType(SessionBrowser)).active,
+        isTrue,
+      );
+    },
+  );
 }

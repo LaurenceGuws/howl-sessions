@@ -111,21 +111,28 @@ final class _HomeState extends State<_Home> {
                     ],
                   ),
                 Expanded(
-                  child: _settings
-                      ? ServersSettings(
+                  child: IndexedStack(
+                    index: _settings ? 1 : 0,
+                    children: [
+                      SessionBrowser(
+                        key: ValueKey(_selectedEndpoint),
+                        active: !_settings,
+                        servers: _servers,
+                        selectedEndpoint: _selectedEndpoint,
+                        onSelectServer: (endpoint) =>
+                            setState(() => _selectedEndpoint = endpoint),
+                        onOpenSettings: () => setState(() => _settings = true),
+                      ),
+                      if (_settings)
+                        ServersSettings(
                           servers: _servers,
                           onChanged: _save,
                           saving: _saving,
                         )
-                      : SessionBrowser(
-                          key: ValueKey(_selectedEndpoint),
-                          servers: _servers,
-                          selectedEndpoint: _selectedEndpoint,
-                          onSelectServer: (endpoint) =>
-                              setState(() => _selectedEndpoint = endpoint),
-                          onOpenSettings: () =>
-                              setState(() => _settings = true),
-                        ),
+                      else
+                        const SizedBox.shrink(),
+                    ],
+                  ),
                 ),
               ],
             ),

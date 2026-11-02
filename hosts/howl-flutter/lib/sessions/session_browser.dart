@@ -18,8 +18,10 @@ final class SessionBrowser extends StatefulWidget {
     required this.onSelectServer,
     required this.onOpenSettings,
     this.client = const ServerClient(),
+    this.active = true,
   });
 
+  final bool active;
   final ServerManagement client;
   final List<ConfiguredServer> servers;
   final String? selectedEndpoint;
@@ -33,6 +35,7 @@ final class SessionBrowser extends StatefulWidget {
 final class _SessionBrowserState extends State<SessionBrowser> {
   ServerManagement get _client => widget.client;
   bool _busy = false;
+  bool _resumePending = false;
   SessionTree? _tree;
   SessionEntry? _selectedSession;
   InstanceEntry? _selectedInstance;
@@ -43,27 +46,43 @@ final class _SessionBrowserState extends State<SessionBrowser> {
   @override
   void initState() {
     super.initState();
-    _refresh();
+    if (widget.active) {
+      _refresh();
+    } else {
+      _resumePending = true;
+    }
   }
 
   @override
   void didUpdateWidget(covariant SessionBrowser oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.selectedEndpoint != oldWidget.selectedEndpoint ||
-        widget.client != oldWidget.client) {
+    final identityChanged =
+        widget.selectedEndpoint != oldWidget.selectedEndpoint ||
+        widget.client != oldWidget.client;
+    if (identityChanged) {
       ++_requestGeneration;
       _tree = null;
       _loading = false;
       _failure = null;
       _selectedSession = null;
       _selectedInstance = null;
-      _refresh();
     }
+    if (!widget.active) {
+      ++_requestGeneration;
+      _loading = false;
+      _resumePending = true;
+      return;
+    }
+    if (!oldWidget.active || identityChanged) _refresh();
   }
 
   Future<void> _refresh({BigInt? selectSession, BigInt? selectInstance}) async {
+    if (!widget.active) return;
     final endpoint = widget.selectedEndpoint;
-    if (endpoint == null) return;
+    if (endpoint == null) {
+      setState(() => _resumePending = false);
+      return;
+    }
     final generation = ++_requestGeneration;
     setState(() {
       _loading = true;
@@ -88,6 +107,7 @@ final class _SessionBrowserState extends State<SessionBrowser> {
         }
       }
       setState(() {
+        _resumePending = false;
         _tree = tree;
         _selectedSession = selected;
         _selectedInstance = instance;
@@ -105,7 +125,9 @@ final class _SessionBrowserState extends State<SessionBrowser> {
   Future<void> _createSession() async {
     final tree = _tree;
     final client = _client;
-    if (_busy || _loading || tree == null) return;
+    if (!widget.active || _resumePending || _busy || _loading || tree == null) {
+      return;
+    }
     setState(() => _busy = true);
     try {
       final endpoint = widget.selectedEndpoint;
@@ -114,6 +136,8 @@ final class _SessionBrowserState extends State<SessionBrowser> {
       if (name == null ||
           !mounted ||
           endpoint != widget.selectedEndpoint ||
+          !widget.active ||
+          _resumePending ||
           !identical(client, _client) ||
           tree.serverId != _tree?.serverId) {
         return;
@@ -140,7 +164,9 @@ final class _SessionBrowserState extends State<SessionBrowser> {
   Future<void> _closeSession(SessionEntry session) async {
     final tree = _tree;
     final client = _client;
-    if (_busy || _loading || tree == null) return;
+    if (!widget.active || _resumePending || _busy || _loading || tree == null) {
+      return;
+    }
     setState(() => _busy = true);
     try {
       final endpoint = widget.selectedEndpoint;
@@ -153,6 +179,8 @@ final class _SessionBrowserState extends State<SessionBrowser> {
       if (!mounted ||
           confirmed != true ||
           endpoint != widget.selectedEndpoint ||
+          !widget.active ||
+          _resumePending ||
           !identical(client, _client) ||
           tree.serverId != _tree?.serverId) {
         return;
@@ -177,7 +205,9 @@ final class _SessionBrowserState extends State<SessionBrowser> {
   Future<void> _createInstance(SessionEntry session) async {
     final tree = _tree;
     final client = _client;
-    if (_busy || _loading || tree == null) return;
+    if (!widget.active || _resumePending || _busy || _loading || tree == null) {
+      return;
+    }
     setState(() => _busy = true);
     try {
       final endpoint = widget.selectedEndpoint;
@@ -186,6 +216,8 @@ final class _SessionBrowserState extends State<SessionBrowser> {
       if (shell == null ||
           !mounted ||
           endpoint != widget.selectedEndpoint ||
+          !widget.active ||
+          _resumePending ||
           !identical(client, _client) ||
           tree.serverId != _tree?.serverId) {
         return;
@@ -218,7 +250,9 @@ final class _SessionBrowserState extends State<SessionBrowser> {
   Future<void> _closeInstance() async {
     final tree = _tree;
     final client = _client;
-    if (_busy || _loading || tree == null) return;
+    if (!widget.active || _resumePending || _busy || _loading || tree == null) {
+      return;
+    }
     setState(() => _busy = true);
     try {
       final endpoint = widget.selectedEndpoint;
@@ -233,6 +267,8 @@ final class _SessionBrowserState extends State<SessionBrowser> {
       if (!mounted ||
           confirmed != true ||
           endpoint != widget.selectedEndpoint ||
+          !widget.active ||
+          _resumePending ||
           !identical(client, _client) ||
           tree.serverId != _tree?.serverId) {
         return;
@@ -257,6 +293,24 @@ final class _SessionBrowserState extends State<SessionBrowser> {
 
   @override
   Widget build(BuildContext context) {
+    // Keep only host selection while hidden. Removing the InstanceView disposes
+    // observation, input and geometry attachments; no hidden worker keeps polling.
+    if (!widget.active) return const SizedBox.shrink();
+    if (_resumePending) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(_failure ?? 'Refreshing server catalog…'),
+            if (!_loading)
+              TextButton(
+                onPressed: _refresh,
+                child: const Text('Refresh catalog'),
+              ),
+          ],
+        ),
+      );
+    }
     final catalog = SessionCatalog(
       servers: widget.servers,
       selectedEndpoint: widget.selectedEndpoint,

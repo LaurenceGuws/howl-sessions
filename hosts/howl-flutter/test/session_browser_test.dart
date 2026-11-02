@@ -72,21 +72,25 @@ final class Management implements ServerManagement {
   }) async {}
 }
 
-Widget app(Management client, {String? endpoint = 'tcp://127.0.0.1:43157'}) =>
-    MaterialApp(
-      home: Scaffold(
-        body: SessionBrowser(
-          client: client,
-          servers: const [
-            ConfiguredServer(name: 'Test', endpoint: 'tcp://127.0.0.1:43157'),
-            ConfiguredServer(name: 'Other', endpoint: 'tcp://127.0.0.1:43158'),
-          ],
-          selectedEndpoint: endpoint,
-          onSelectServer: (_) {},
-          onOpenSettings: () {},
-        ),
-      ),
-    );
+Widget app(
+  Management client, {
+  String? endpoint = 'tcp://127.0.0.1:43157',
+  bool active = true,
+}) => MaterialApp(
+  home: Scaffold(
+    body: SessionBrowser(
+      client: client,
+      active: active,
+      servers: const [
+        ConfiguredServer(name: 'Test', endpoint: 'tcp://127.0.0.1:43157'),
+        ConfiguredServer(name: 'Other', endpoint: 'tcp://127.0.0.1:43158'),
+      ],
+      selectedEndpoint: endpoint,
+      onSelectServer: (_) {},
+      onOpenSettings: () {},
+    ),
+  ),
+);
 
 IconButton button(WidgetTester tester, String tooltip) =>
     tester.widget<IconButton>(
@@ -269,4 +273,84 @@ void main() {
     expect(find.byType(SessionBrowser), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+  testWidgets(
+    'Inactive browser makes no requests and resumes from a fresh catalog',
+    (tester) async {
+      final client = Management();
+      await tester.pumpWidget(app(client, active: false));
+      await tester.pumpAndSettle();
+      expect(client.reads, 0);
+      expect(find.byType(InstanceView), findsNothing);
+      await tester.pumpWidget(app(client));
+      await tester.pumpAndSettle();
+      expect(client.reads, 1);
+      expect(find.byType(SessionCatalog), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'Hidden read is discarded; resume holds attachments until fresh result',
+    (tester) async {
+      final oldRead = Completer<SessionTree>();
+      final client = Management()..reading = oldRead;
+      await tester.pumpWidget(app(client));
+      await tester.pumpWidget(app(client, active: false));
+      oldRead.complete(catalog());
+      await tester.pumpAndSettle();
+      expect(find.byType(InstanceView), findsNothing);
+      final freshRead = Completer<SessionTree>();
+      client.reading = freshRead;
+      await tester.pumpWidget(app(client));
+      await tester.pump();
+      expect(find.text('Refreshing server catalog…'), findsOneWidget);
+      expect(find.byType(InstanceView), findsNothing);
+      freshRead.complete(catalog(server: 92));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<SessionCatalog>(find.byType(SessionCatalog))
+            .tree!
+            .serverId,
+        BigInt.from(92),
+      );
+      expect(client.reads, 2);
+    },
+  );
+
+  testWidgets(
+    'Settings hide preserves selection only within the same incarnation',
+    (tester) async {
+      final session = SessionEntry(
+        id: BigInt.one,
+        name: 'selected',
+        instances: const [],
+      );
+      final client = Management()..tree = catalog(sessions: [session]);
+      await tester.pumpWidget(app(client));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('New session'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextFormField), 'selected');
+      await tester.pump();
+      await tester.tap(find.text('Create'));
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(app(client, active: false));
+      await tester.pumpAndSettle();
+      expect(find.byType(InstanceView), findsNothing);
+      await tester.pumpWidget(app(client));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<InstanceView>(find.byType(InstanceView)).session?.id,
+        BigInt.one,
+      );
+      await tester.pumpWidget(app(client, active: false));
+      client.tree = catalog(server: 92, sessions: [session]);
+      await tester.pumpWidget(app(client));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<InstanceView>(find.byType(InstanceView)).session,
+        isNull,
+      );
+    },
+  );
 }
