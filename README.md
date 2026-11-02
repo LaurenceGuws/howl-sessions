@@ -29,8 +29,8 @@ only boots the app; endpoint preferences, Session tree, Instance selection and
 platform packaging have distinct owners. It uses the Dart bindings owned by
 `mods/server-client`, which invoke the exact C ABI in worker isolates.
 The live catalog and Session/Instance CRUD have an independent native proof.
-The new Flutter host can display an explicitly refreshed **text-only native
-Instance snapshot**. It attaches via the Server-client C ABI, copies immutable
-terminal facts and releases the connection. This is an ABI/projection canary,
-not a live terminal or a rendering replacement. Dedicated long-lived following,
-terminal input, full cell painting and remote-network benchmarks remain pending.
+Flutter is a product host, with live terminal following, input and native
+rendering. Its current capabilities and remaining qualification limits belong
+in [the host README](hosts/howl-flutter/README.md).
+See [decisionlog.md](decisionlog.md) for why the product split and fresh host
+exist; the old text-only projection canary is not the current product scope.

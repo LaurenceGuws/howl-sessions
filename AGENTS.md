@@ -45,3 +45,8 @@ affected package tests, root test/check and audit gates, formatting and
 `git diff --check`. An audit-tool failure is a blocker, not a green check.
 The workspace check runs child compilation/tests plus the one root Git-owned
 zig-audit; standalone package audits run only when the package is a Git root.
+
+## Decision rationale
+
+Read [decisionlog.md](decisionlog.md) for Captain's repository and product-boundary
+decisions before proposing structural changes.
