@@ -10,6 +10,14 @@ boundaries are established.
 - `main.dart` only initializes and launches the app.
 - `app.dart` owns host navigation and endpoint selection.
 - `servers/` owns local named endpoint preferences and their Settings CRUD.
+  The existing v1 preferences remain readable, with explicit limits: 32 Servers,
+  64 Unicode scalars per name, 1024 UTF-8 bytes per endpoint and 64 KiB encoded
+  settings. Invalid/duplicate configurations fail before a save; invalid stored
+  data is reported rather than silently truncated on load. The host validates
+  bounds and control characters, leaving transport grammar to the native owner.
+  Settings serialize editor/removal dialogs through completion, and the home
+  view retains the save gate across Settings navigation. Field errors are shown
+  inline; a failed save keeps the previous in-memory configuration.
 - `sessions/` shows the selected Server's Session/Instance tree, with Session
   and Instance create/close. The add action for Sessions lives on that pane.
   Phones open a selected Instance into a full terminal viewport; Back returns to

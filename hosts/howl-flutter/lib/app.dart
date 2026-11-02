@@ -32,6 +32,7 @@ final class _HomeState extends State<_Home> {
   String? _settingsFailure;
   bool _ready = false;
   bool _settings = false;
+  bool _saving = false;
 
   @override
   void initState() {
@@ -59,6 +60,8 @@ final class _HomeState extends State<_Home> {
   }
 
   Future<void> _save(List<ConfiguredServer> next) async {
+    if (_saving) throw StateError('A settings save is already in progress');
+    setState(() => _saving = true);
     try {
       await _store.save(next);
       if (!mounted) return;
@@ -72,6 +75,8 @@ final class _HomeState extends State<_Home> {
     } catch (error) {
       if (!mounted) return;
       setState(() => _settingsFailure = error.toString());
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 
@@ -107,7 +112,11 @@ final class _HomeState extends State<_Home> {
                   ),
                 Expanded(
                   child: _settings
-                      ? ServersSettings(servers: _servers, onChanged: _save)
+                      ? ServersSettings(
+                          servers: _servers,
+                          onChanged: _save,
+                          saving: _saving,
+                        )
                       : SessionBrowser(
                           key: ValueKey(_selectedEndpoint),
                           servers: _servers,

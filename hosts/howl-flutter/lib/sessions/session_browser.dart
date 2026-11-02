@@ -351,6 +351,7 @@ final class _CreateDialogState extends State<_CreateDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
+    scrollable: true,
     title: Text(widget.shell ? 'New Instance' : 'New Session'),
     content: TextFormField(
       initialValue: _value,
@@ -400,6 +401,7 @@ Future<bool?> _confirmClose(
       }
 
       return AlertDialog(
+        scrollable: true,
         title: Text(title),
         content: Text(message),
         actions: [
