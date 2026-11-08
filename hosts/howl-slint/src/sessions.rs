@@ -10,7 +10,7 @@ use std::{
     ffi::{CString, c_char, c_void},
     rc::Rc,
     sync::{
-        Arc, Mutex,
+        Arc, Condvar, Mutex,
         atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, SyncSender},
     },
@@ -125,6 +125,11 @@ struct Fonts {
     patterns: [String; 4],
     fallbacks: Vec<String>,
     size: u16,
+}
+
+// Style font sizes are logical; Howl rasterizes in integer physical pixels.
+fn raster_font_size(logical: f32, scale: f32) -> u16 {
+    (logical * scale).round().clamp(1.0, u16::MAX as f32) as u16
 }
 
 #[derive(Default)]
@@ -243,6 +248,7 @@ fn apply_update(app: &App, update: Update) {
 #[derive(Default)]
 struct Pending {
     size: Option<(u32, u32)>,
+    font_pixels: Option<u16>,
     ready: Option<(u16, u16)>,
     ended: Option<Result<(), String>>,
 }
@@ -274,12 +280,41 @@ impl Cancellation {
         Ok(())
     }
 }
+// A fresh renderer waits for the action lane to acknowledge its geometry.
+// Cancellation releases this wait too, before joining the observer.
+#[derive(Default)]
+struct FirstGeometry {
+    result: Mutex<Option<bool>>,
+    changed: Condvar,
+}
+impl FirstGeometry {
+    fn finish(&self, ready: bool) {
+        let mut result = self.result.lock().unwrap();
+        if result.is_none() {
+            *result = Some(ready);
+            self.changed.notify_one();
+        }
+    }
+    fn wait(&self) -> bool {
+        let result = self.result.lock().unwrap();
+        self.changed
+            .wait_while(result, |value| value.is_none())
+            .unwrap()
+            .unwrap()
+    }
+}
+struct ObserverStartup {
+    interrupt: Arc<Interrupt>,
+    geometry: Arc<FirstGeometry>,
+}
 struct Observer {
+    geometry: Arc<FirstGeometry>,
     interrupt: Arc<Interrupt>,
     worker: Option<JoinHandle<()>>,
 }
 impl Drop for Observer {
     fn drop(&mut self) {
+        self.geometry.finish(false);
         self.interrupt.cancel();
         if let Some(worker) = self.worker.take()
             && worker.join().is_err()
@@ -369,7 +404,7 @@ impl Sessions {
                     .iter()
                     .map(|v| v.to_string())
                     .collect(),
-                size: style.terminal_font_size.round().clamp(1.0, u16::MAX as f32) as u16,
+                size: raster_font_size(style.terminal_font_size, app.window().scale_factor()),
             };
             let view = View {
                 app: app.as_weak(),
@@ -423,9 +458,13 @@ impl Sessions {
             }
         });
         let slot = connection.clone();
-        app.on_terminal_resize(move |w, h| {
+        app.on_terminal_resize(move |w, h, pixels| {
             if let Some(connection) = slot.borrow().as_ref() {
-                connection.pending.lock().unwrap().size = Some((w.max(0) as u32, h.max(0) as u32));
+                {
+                    let mut pending = connection.pending.lock().unwrap();
+                    pending.size = Some((w.max(0) as u32, h.max(0) as u32));
+                    pending.font_pixels = Some(pixels.clamp(1, u16::MAX as i32) as u16);
+                }
                 let _ = connection.sender.try_send(Command::Wake);
             }
         });
@@ -511,7 +550,7 @@ fn run(
     sender: SyncSender<Command>,
     pending: Arc<Mutex<Pending>>,
     view: View,
-    fonts: Fonts,
+    mut fonts: Fonts,
 ) {
     let result = (|| -> Result<(), String> {
         let entries = catalog(&endpoint, &cancellation.commands)?;
@@ -530,7 +569,18 @@ fn run(
         let mut actions = None::<Actions>;
         let mut last_size = None;
         let mut cell = None;
-        while let Ok(command) = receiver.recv() {
+        // DPI changes replace only the observer/font owner. The action lane
+        // and remote shell remain alive; a normal resize publishes new geometry.
+        let mut selected = None;
+        let mut rebuild = false;
+        loop {
+            let command = if rebuild {
+                rebuild = false;
+                Command::Select(selected.expect("font rebuild requires a selection"))
+            } else {
+                let Ok(command) = receiver.recv() else { break };
+                command
+            };
             if cancellation.stopping.load(Ordering::Acquire) {
                 break;
             }
@@ -541,7 +591,11 @@ fn run(
                     // Join before clearing pending updates. Nothing from the old
                     // selection can repopulate this mailbox after this point.
                     observer.take();
-                    actions.take();
+                    let same_selection = selected == Some(index);
+                    selected = Some(index);
+                    if !same_selection {
+                        actions.take();
+                    }
                     cancellation.observer.lock().unwrap().take();
                     {
                         let mut facts = pending.lock().unwrap();
@@ -550,18 +604,20 @@ fn run(
                     }
                     cell = None;
                     view.publish(|update| update.select(index, entry.name.clone()));
-                    let mut raw = std::ptr::null_mut();
-                    check(unsafe {
-                        remote_actions_open(
-                            endpoint.as_ptr(),
-                            cancellation.commands.0,
-                            entry.server,
-                            entry.session,
-                            entry.instance,
-                            &mut raw,
-                        )
-                    })?;
-                    actions = Some(Actions(raw));
+                    if actions.is_none() {
+                        let mut raw = std::ptr::null_mut();
+                        check(unsafe {
+                            remote_actions_open(
+                                endpoint.as_ptr(),
+                                cancellation.commands.0,
+                                entry.server,
+                                entry.session,
+                                entry.instance,
+                                &mut raw,
+                            )
+                        })?;
+                        actions = Some(Actions(raw));
+                    }
                     let interrupt = Arc::new(Interrupt::new()?);
                     cancellation.install_observer(interrupt.clone())?;
                     let owner = interrupt.clone();
@@ -571,10 +627,24 @@ fn run(
                     let facts = pending.clone();
                     let wake = sender.clone();
                     let updates = view.clone();
+                    let geometry = Arc::new(FirstGeometry::default());
+                    let first = geometry.clone();
                     let worker = thread::spawn(move || {
-                        observe(address, target, owner, fonts, facts, wake, updates)
+                        observe(
+                            address,
+                            target,
+                            ObserverStartup {
+                                interrupt: owner,
+                                geometry: first,
+                            },
+                            fonts,
+                            facts,
+                            wake,
+                            updates,
+                        )
                     });
                     observer = Some(Observer {
+                        geometry,
                         interrupt,
                         worker: Some(worker),
                     });
@@ -594,10 +664,21 @@ fn run(
                 }
                 Command::Wake | Command::Select(_) => {}
             }
-            let (size, ready, ended) = {
+            let (size, font_pixels, ready, ended) = {
                 let mut facts = pending.lock().unwrap();
-                (facts.size.take(), facts.ready.take(), facts.ended.take())
+                (
+                    facts.size.take(),
+                    facts.font_pixels.take(),
+                    facts.ready.take(),
+                    facts.ended.take(),
+                )
             };
+            if let Some(pixels) = font_pixels
+                && pixels != fonts.size
+            {
+                fonts.size = pixels;
+                rebuild = selected.is_some();
+            }
             let resized = size.is_some() || ready.is_some();
             if let Some(size) = size {
                 last_size = Some(size);
@@ -615,13 +696,20 @@ fn run(
                     update.status =
                         Some(result.err().unwrap_or_else(|| "Remote shell exited".into()))
                 });
-            } else if resized
+            } else if !rebuild
+                && resized
                 && let (Some(actions), Some((width, height)), Some((cell_width, cell_height))) =
                     (actions.as_ref(), last_size, cell)
             {
                 check(unsafe {
                     remote_actions_resize(actions.0, width, height, cell_width, cell_height)
                 })?;
+                if width >= u32::from(cell_width)
+                    && height >= u32::from(cell_height)
+                    && let Some(observer) = observer.as_ref()
+                {
+                    observer.geometry.finish(true);
+                }
             }
         }
         Ok(())
@@ -639,12 +727,16 @@ fn run(
 fn observe(
     endpoint: CString,
     entry: Entry,
-    interrupt: Arc<Interrupt>,
+    startup: ObserverStartup,
     fonts: Fonts,
     pending: Arc<Mutex<Pending>>,
     sender: SyncSender<Command>,
     view: View,
 ) {
+    let ObserverStartup {
+        interrupt,
+        geometry: first_geometry,
+    } = startup;
     let result = (|| -> Result<(), String> {
         let variables = [
             "HOWL_FONT",
@@ -700,14 +792,18 @@ fn observe(
         check(unsafe { remote_cell_size(client.0, &mut cell_width, &mut cell_height) })?;
         pending.lock().unwrap().ready = Some((cell_width, cell_height));
         let _ = sender.try_send(Command::Wake);
+        if !first_geometry.wait() {
+            return Ok(());
+        }
         let mut previous = None;
+        // Resize acknowledgment precedes the first observe request.
         loop {
             let (mut pixels, mut width, mut height, mut exited) = (std::ptr::null(), 0, 0, 0);
             check(unsafe {
                 remote_step(client.0, &mut pixels, &mut width, &mut height, &mut exited)
             })?;
             if !pixels.is_null() {
-                if width == 0 || height == 0 || width > 2048 || height > 2048 {
+                if width == 0 || height == 0 || width > 4096 || height > 4096 {
                     return Err("Invalid remote frame dimensions".into());
                 }
                 let pixels = unsafe {
@@ -748,6 +844,46 @@ fn changed_frame(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn first_geometry_wait_is_released_by_ack_or_cancellation() {
+        for ready in [true, false] {
+            let first = Arc::new(FirstGeometry::default());
+            let waiter = first.clone();
+            let worker = std::thread::spawn(move || waiter.wait());
+            first.finish(ready);
+            assert_eq!(worker.join().unwrap(), ready);
+            first.finish(!ready); // Once settled, later cleanup cannot change it.
+            assert_eq!(first.wait(), ready);
+        }
+    }
+
+    #[test]
+    fn dropping_observer_before_resize_ack_cancels_pending_wait() {
+        let geometry = Arc::new(FirstGeometry::default());
+        let waiting = geometry.clone();
+        let (sent, received) = mpsc::channel();
+        let observer = Observer {
+            geometry,
+            interrupt: Arc::new(Interrupt::new().unwrap()),
+            worker: Some(std::thread::spawn(move || {
+                sent.send(waiting.wait()).unwrap();
+            })),
+        };
+        // Selection replacement, connection close, and resize-error unwind all
+        // take this same Drop path, even before any resize succeeds.
+        drop(observer);
+        assert!(!received.recv().unwrap());
+    }
+
+    #[test]
+    fn logical_font_preference_maps_to_physical_pixels() {
+        assert_eq!(raster_font_size(18.0, 1.0), 18);
+        assert_eq!(raster_font_size(18.0, 2.0), 36);
+        assert_eq!(raster_font_size(18.0, 3.5), 63);
+        assert_eq!(raster_font_size(17.0, 1.5), 26); // Expected pixel quantization.
+        assert_eq!(raster_font_size(0.0, 2.0), 1);
+    }
 
     #[test]
     fn publications_coalesce_and_rearm_without_losing_work() {

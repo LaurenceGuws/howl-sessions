@@ -34,7 +34,7 @@ export component App inherits Window {
     in property <image> terminal-frame;
     in property <string> terminal-status: "Disconnected";
     callback terminal-key(KeyEvent, bool);
-    callback terminal-resize(int, int);
+    callback terminal-resize(int, int, int);
 
     // Fill the window without feeding responsive content back into its size.
     shell-layout := VerticalBox {
@@ -88,7 +88,7 @@ export component App inherits Window {
                     style: root.style;
                     frame: root.terminal-frame;
                     key(event, released) => { root.terminal-key(event, released); }
-                    resized(w, h) => { root.terminal-resize(w, h); }
+                    resized(w, h, pixels) => { root.terminal-resize(w, h, pixels); }
                 }
                 if !root.terminal-enabled: Rectangle {
                     vertical-stretch: 1;

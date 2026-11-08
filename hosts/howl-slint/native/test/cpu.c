@@ -1,5 +1,6 @@
 #include "cpu.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "CPU test line %d\n", __LINE__); return 1; } } while (0)
 /* Original integer source-over formula, independent of production shortcuts. */
@@ -116,6 +117,17 @@ int main(void) {
     CHECK(cpu_paint(&surface, &info, &command, &upload) != 0);
     info.surface_width = CPU_MAX_SIDE + 1;
     CHECK(cpu_paint(&surface, &info, &command, &upload) != 0);
+    /* A physical mobile viewport can exceed 2048 pixels without a huge
+     * square allocation. The compositor uses the caller's exact-sized span. */
+    uint8_t *wide_pixels = malloc(2140u * 2u * 4u);
+    CHECK(wide_pixels != NULL);
+    struct cpu_surface wide = {.pixels = wide_pixels};
+    hrc_frame_info wide_info = {.surface_width = 2140, .surface_height = 2,
+        .background_rgba = 0xff123456};
+    CHECK(cpu_paint(&wide, &wide_info, NULL, NULL) == 0);
+    CHECK(wide.width == 2140 && wide.height == 2);
+    CHECK(wide_pixels[2140u * 2u * 4u - 4] == 0x56);
+    free(wide_pixels);
     puts("CPU_PASS: exhaustive alpha/coverage equivalence, clipping, alpha, RGBA, missing/truncated resources, bounds");
     return 0;
 }

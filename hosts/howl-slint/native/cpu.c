@@ -19,7 +19,8 @@ static void blend(uint8_t *d, uint32_t rgba, unsigned coverage) {
 uint32_t cpu_paint(struct cpu_surface *p, const hrc_frame_info *f,
                    const hrc_command *commands, const hrc_upload *uploads) {
   if (!f->surface_width || !f->surface_height || f->surface_width > CPU_MAX_SIDE ||
-      f->surface_height > CPU_MAX_SIDE)
+      f->surface_height > CPU_MAX_SIDE ||
+      (size_t)f->surface_width * f->surface_height > CPU_MAX_PIXELS)
     return 1;
   p->width = f->surface_width;
   p->height = f->surface_height;

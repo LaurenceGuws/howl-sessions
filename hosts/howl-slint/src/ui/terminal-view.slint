@@ -5,19 +5,25 @@ export component TerminalView inherits FocusScope {
     in property <Style> style;
     in property <image> frame;
     callback key(KeyEvent, bool);
-    callback resized(int, int);
+    callback resized(int, int, int);
+    // Slint tracks physical-unit conversions when the window changes screens.
+    private property <length> physical-pixel: 1phx;
+    private property <int> raster-font-size: max(1, round(root.style.terminal-font-size / root.physical-pixel));
+    changed raster-font-size => { root.resized(self.width / 1phx, self.height / 1phx, self.raster-font-size); }
     vertical-stretch: 1;
     min-width: 0px;
     min-height: 0px;
-    changed width => { root.resized(self.width / 1px, self.height / 1px); }
-    changed height => { root.resized(self.width / 1px, self.height / 1px); }
+    private property <int> physical-width: floor(self.width / 1phx);
+    private property <int> physical-height: floor(self.height / 1phx);
+    changed physical-width => { root.resized(self.physical-width, self.physical-height, self.raster-font-size); }
+    changed physical-height => { root.resized(self.physical-width, self.physical-height, self.raster-font-size); }
     key-pressed(event) => { root.key(event, false); return accept; }
     key-released(event) => { root.key(event, true); return accept; }
     Rectangle { background: root.style.palette.terminal; }
     Image {
         source: root.frame;
-        width: min(parent.width, self.source.width * 1px);
-        height: min(parent.height, self.source.height * 1px);
+        width: min(parent.width, self.source.width * 1phx);
+        height: min(parent.height, self.source.height * 1phx);
         image-fit: contain;
     }
     TouchArea { clicked => { root.focus(); } }

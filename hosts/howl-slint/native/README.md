@@ -47,7 +47,9 @@ replace APK UI and activity-lifecycle testing.
 
 ## Current presentation limits
 
-CPU snapshots use a bounded 2048-pixel side and 160×80 terminal grid. Zero atlas
+CPU snapshots use a bounded 4096-pixel side, 16-million-pixel area and 160×80
+terminal grid. Pixel storage grows to actual frame size and retains its high-water
+allocation until close; opening a catalog does not allocate a framebuffer. Zero atlas
 residency gives each frame complete resources, at the cost of reuse. Graphics
 images are explicitly unsupported. These constraints are not a GPU/performance
 claim; they remain visible design work rather than alternate runtime modes.

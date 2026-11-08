@@ -183,6 +183,27 @@ A checked 1:1 alpha-mask row path also reduced native dense-Cells CPU about
 16% in repeated Home runs, with no meaningful Rain improvement.
 
 No ABI change is justified by these results. Full CPU composition and image
-upload remain. The Android terminal currently rasterizes at logical resolution
-then scales on the GPU; physical-resolution font fidelity remains separate work,
-not a speed claim.
+upload remain. A residency-cache prototype saved only about 4% native Rain CPU
+and did not consistently help Cells, so the additional cache ownership and
+invalidation machinery was not kept.
+
+### Physical terminal pixels
+
+UI font preferences remain logical lengths. Terminal viewport, glyph raster size
+and displayed framebuffer use physical pixels, via Slint's reactive `phx` units.
+Moving between scales recreates only the observer/font owner; the command lane
+and remote shell survive. Integer font metrics may quantize the grid differently
+at fractional scales. The first observation waits for the command lane's geometry
+acknowledgment, avoiding an old wide grid rendered at the new larger font size.
+Cancellation wakes that wait before joining the observer.
+
+Native framebuffer allocation grows to actual frames, bounded at 4096 pixels per
+side and 64 MiB RGBA. Physical-resolution rendering improves fidelity, not speed:
+there are more real pixels to compose and upload on high-density displays.
+
+Qualified on Home at 2× and Note10 at 3.5×: sharp text, first attach, input,
+sidebar expansion beyond 2048 pixels and disconnect/reconnect. Live cross-monitor
+scale changes and Android orientation changes still need device qualification.
+One Note10 Rain sample used 5.43 CPU seconds over 8 seconds at physical resolution,
+versus 3.60 at the previous logical resolution; idle remained below the 10 ms
+CPU-clock resolution over 8 seconds. These samples do not establish displayed FPS.

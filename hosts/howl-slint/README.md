@@ -51,7 +51,9 @@ returns to the same remote shell.
   four-face fidelity. Explicit preferred-face overrides remain available. Portable
   font packaging is still open. Slint platform fonts independently serve UI text.
 - Full snapshots/CPU frames, 256 selectable running instances, 160×80 terminal
-  grid and 2048-pixel sides are current host bounds. This is not a performance claim.
+  grid and 4096-pixel sides (16 million pixels total) are current host bounds.
+  Native framebuffer storage grows to actual frames rather than allocating the
+  maximum on connection. This is not a performance claim.
 - Graphics-image snapshots are explicitly unsupported by this Render integration;
   IME, full paste/mouse integration and automatic discovery are not implemented.
 

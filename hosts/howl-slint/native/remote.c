@@ -15,6 +15,9 @@ struct remote_client {
     hsr_renderer *renderer;
     hrc_cell_size cell;
     struct cpu_surface surface;
+    /* Grow only to observed frame size. Retain the high-water allocation until
+     * close, bounded by CPU_MAX_PIXELS (64 MiB RGBA), never an eager maximum. */
+    size_t surface_capacity;
     char *endpoint;
     uint64_t server;
     uint64_t revision;
@@ -40,8 +43,7 @@ uint32_t remote_open(const char *endpoint, hsc_interrupt *interrupt, struct remo
     uint32_t status = HSC_OUT_OF_MEMORY;
     p->interrupt = interrupt;
     p->endpoint = strdup(endpoint);
-    p->surface.pixels = malloc(CPU_MAX_SIDE * CPU_MAX_SIDE * 4u);
-    if (!p->endpoint || !p->surface.pixels) goto fail;
+    if (!p->endpoint) goto fail;
     status = hsc_control_open(HSC_ABI_VERSION, (const uint8_t *)endpoint, strlen(endpoint), interrupt, &p->control);
     if (status) goto fail;
     status = hsc_control_tree(p->control, 0, &p->tree);
@@ -161,6 +163,18 @@ uint32_t remote_step(struct remote_client *p, const uint8_t **pixels, uint32_t *
     hrc_frame_view view = {0};
     status = hsr_frame_read(frame, &view);
     if (status) { status += 100; goto done; }
+    size_t frame_width = view.info.surface_width, frame_height = view.info.surface_height;
+    if (!frame_width || !frame_height || frame_width > CPU_MAX_SIDE ||
+        frame_height > CPU_MAX_SIDE || frame_width > CPU_MAX_PIXELS / frame_height) {
+        status = HSC_RESOURCE_LIMIT; goto done;
+    }
+    size_t bytes = frame_width * frame_height * 4u;
+    if (bytes > p->surface_capacity) {
+        uint8_t *grown = realloc(p->surface.pixels, bytes);
+        if (!grown) { status = HSC_OUT_OF_MEMORY; goto done; }
+        p->surface.pixels = grown;
+        p->surface_capacity = bytes;
+    }
     if (cpu_paint(&p->surface, &view.info, view.commands, view.uploads)) { status = HSC_PROTOCOL_ERROR; goto done; }
     p->revision = meta.delivery_revision;
     *pixels = p->surface.pixels;

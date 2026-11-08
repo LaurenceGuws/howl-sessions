@@ -172,6 +172,20 @@ int main(int argc, char **argv) {
             REQUIRE(pthread_join(observer,NULL)==0); observer_started=0;
             REQUIRE(observation.status==HSC_OK);
         }
+        /* A DPI-sized renderer needs a physical frame wider than the old
+         * 2048 limit. Recreate only this observer; the remote shell survives. */
+        REQUIRE(remote_attach(host, sid, session_id, instance_id, faces, NULL, 0, 32) == HSC_OK);
+        REQUIRE(remote_cell_size(host,&cw,&ch)==HSC_OK);
+        REQUIRE(cw > 0 && 2140/cw <= 160);
+        REQUIRE(remote_actions_resize(actions,2140,440,cw,ch)==HSC_OK);
+        do {
+            observation=(struct observation){.host=host};
+            REQUIRE(pthread_create(&observer,NULL,observe,&observation)==0); observer_started=1;
+            REQUIRE(await_observation(&observation));
+            REQUIRE(pthread_join(observer,NULL)==0); observer_started=0;
+            REQUIRE(observation.status==HSC_OK);
+        } while(observation.width != (2140/cw)*cw || observation.height != (440/ch)*ch);
+        REQUIRE(observation.width > 2048);
         parked=0;
         for(unsigned attempt=0;attempt<20 && !parked;attempt++) {
             observation=(struct observation){.host=host};
