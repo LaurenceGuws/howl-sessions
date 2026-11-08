@@ -1,3 +1,4 @@
+import { ServerConnection } from "server-connection.slint";
 import { TerminalView } from "terminal-view.slint";
 import { VerticalBox, HorizontalBox } from "std-widgets.slint";
 import { Style, Theme } from "style.slint";
@@ -22,9 +23,16 @@ export component App inherits Window {
     private property <bool> compact: shell-layout.width < shell-layout.height;
     private property <length> sidebar-width: 0px;
     callback select-session(int);
+    in property <string> font-note;
+    in property <bool> server-connected: false;
+    in property <bool> server-connecting: false;
+    in-out property <string> server-endpoint;
+    in property <string> connection-detail: "No connection";
+    callback connect-server(string);
+    callback disconnect-server();
     in property <bool> terminal-enabled: false;
     in property <image> terminal-frame;
-    in property <string> terminal-status: "Starting local terminal";
+    in property <string> terminal-status: "Disconnected";
     callback terminal-key(KeyEvent, bool);
     callback terminal-resize(int, int);
 
@@ -37,6 +45,14 @@ export component App inherits Window {
         padding: 0px;
         spacing: 0px;
 
+        ServerConnection {
+            style: root.style;
+            endpoint <=> root.server-endpoint;
+            connected: root.server-connected;
+            connecting: root.server-connecting;
+            connect(endpoint) => { root.connect-server(endpoint); }
+            disconnect => { root.disconnect-server(); }
+        }
         panes := HorizontalBox {
             padding: 0px;
             spacing: root.show-sessions ? root.style.stroke : 0px;
@@ -49,7 +65,7 @@ export component App inherits Window {
                 retained-width <=> root.sidebar-width;
                 style: root.style;
                 sessions: root.sessions;
-                detail: root.terminal-enabled ? "Local Bash" : "No connection";
+                detail: root.connection-detail;
                 selected-index: root.selected-index;
                 toggle-sessions => { root.show-sessions = !root.show-sessions; }
                 select-session(index) => {
@@ -82,8 +98,8 @@ export component App inherits Window {
         }
         status-bar := StatusBar {
             style: root.style;
-            status: root.terminal-enabled ? root.terminal-status : "○  Offline";
-            detail: root.terminal-enabled ? "Local terminal proof" : "Layout preview";
+            status: root.terminal-status;
+            detail: root.font-note != "" ? root.font-note : root.connection-detail;
         }
     }
 

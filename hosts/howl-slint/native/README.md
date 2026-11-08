@@ -1,62 +1,67 @@
 # Native boundary
 
-This directory selects published ABI compositions, not sibling checkouts.
-`build.zig.zon` is the pin authority. Transitive owners pin their own dependencies;
-do not add a second independent version of VT/Text/Render here.
+`build.zig.zon` pins the published Client Render composition by exact hash.
+It exports Client 0.1.8-dev and Client Render 0.1.2-dev as
+`libhowl_sessions_native.so`, with the matching Client/Render/VT headers.
+Transitive owners pin VT/Text/Render themselves. No local Instance or PTY is
+linked into this host, and no sibling checkout is an implicit dependency.
 
-| Profile | Installed artifact | Ownership |
-| --- | --- | --- |
-| `local` (default) | Instance + companion VT static libraries and headers | Local PTY, VT, presentation |
-| `sessions` | `libhowl_sessions_native.so` and matching Client/Render/VT headers | Remote Sessions client and local presentation, no local PTY |
+Rust owns connection scheduling, input, UI mailboxes and cancellation.
+`remote.c` owns Client/Render handles and the CPU pixel surface. `cpu.c` consumes
+canonical Render commands; Howl still owns terminal semantics and text shaping.
+A frame is painted while its lease is live, released, then pixels are borrowed
+until the next call. Rust copies them before another native call. Disconnect
+releases local resources, never closes the remote Session or kills its child.
 
-The Sessions composition includes Client 0.1.8-dev and Client Render 0.1.2-dev.
-Both profiles resolve VT 0.1.7-dev, Text 0.1.6-dev and Render 0.1.10-dev to the
-same exact published hashes. Only local Instance also needs PTY 0.1.6-dev.
-The Sessions dependency is lazy: normal local builds do not fetch/build it.
+`build.rs` invokes the pinned Zig composition and compiles the host's small C
+adapter with Cargo `cc`. Linux uses system FreeType/HarfBuzz. Android ARM64 uses
+Text's pinned bundled builds with an explicit NDK libc description via
+`HOWL_ANDROID_LIBC`. The APK must contain both the Rust and Sessions shared
+libraries. The current Linux run path uses the Cargo output directory as an
+rpath; independent application packaging remains separate work.
+
+## Tests
 
 ```sh
 zig build -Doptimize=ReleaseSafe
-zig build -Dprofile=sessions -Doptimize=ReleaseSafe
-zig build test -Dprofile=sessions -Doptimize=ReleaseSafe
+zig build test test-cpu -Doptimize=ReleaseSafe
+zig build test-live -Doptimize=ReleaseSafe -- \
+  unix:/absolute/private-server.sock /absolute/regular-font.ttf
 ```
 
-These install into the same default `zig-out` unless `--prefix` is supplied;
-use separate prefixes when comparing profiles. This qualifies the remote ABI,
-not an implemented remote Slint UI. There is no raw-SSH profile yet: raw SSH
-needs a channel/VT owner, not the Sessions protocol or a local Instance.
+`test-cpu` exercises clipping, alpha/RGBA, malformed resources and bounds.
+`test` forwards the published Client Render package's tests.
+`test-live` creates and cleans up its own disposable Session on the given Server.
+It tests input, geometry, four-face capture, cancellation, re-attachment and the
+actual host adapter. Only run against a Server authorized for that temporary
+work. The four slots use one fixture font; style differentiation belongs to
+Render's tests. `build-live` installs that executable for device tests.
 
-## Current local adapter
+Append `--benchmark` after `ENDPOINT FONT_PATH` for 200 idle and 200 input/frame
+iterations through the actual adapter at a requested 1600×900 viewport. It reports
+actual frame dimensions, elapsed time and client-process CPU time. Font setup,
+Rust copies, UI upload and pacing are excluded; this is a native-path measurement,
+not a whole-app frame-rate or input-latency claim.
 
-`terminal.c` is private to this host. Its `proof_*` functions are not a released
-Howl ABI. Rust owns the worker, input queue, UI mailbox and shutdown request.
-The adapter owns Instance/frame handles and the CPU pixel buffer. Howl owns
-PTY/VT semantics, text shaping and canonical render commands.
+Android builds use `-Dtarget=aarch64-linux-android.28 -Dbundled_text=true --libc
+/path/to/ndk-libc.txt`. The ARM64 native integration test has passed on Note10
+against a private Server through an SSH loopback forward. That evidence does not
+replace APK UI and activity-lifecycle testing.
 
-The adapter borrows strings only during construction. It acquires each frame,
-consumes commands/uploads while the lease is live, releases it, then lends CPU
-pixels to Rust until the next call. Rust copies those pixels before calling
-again. Zero-residency release deliberately trades atlas reuse for a complete,
-independent CPU frame. No native handle or borrowed image reaches the UI thread.
+## Current presentation limits
 
-Teardown closes the only frame endpoint before destroying Instance. The pinned
-frame-close implementation abandons any outstanding lease. `HI_BUSY` on destroy
-means a publication borrow remains; this exclusive-owner design should not have
-one after close. The current Drop path only reports an unexpected failure; it is
-not a general retry/recovery policy for future shared owners.
+CPU snapshots use a bounded 2048-pixel side and 160×80 terminal grid. Zero atlas
+residency gives each frame complete resources, at the cost of reuse. Graphics
+images are explicitly unsupported. These constraints are not a GPU/performance
+claim; they remain visible design work rather than alternate runtime modes.
 
-## Before promoting the proof
 
-- Separate host launch/font/budget policy from the CPU compositor without
-  duplicating canonical terminal or rendering behavior. Current launch is Bash,
-  its environment is explicit, and the configured limits are proof limits.
-- Consider compiling this C adapter in the existing Zig build rather than a
-  second Cargo `cc` stage. This is build simplification, not an ABI redesign.
-- Add isolated compositor tests for clipping, alpha/RGBA, malformed resources
-  and limits. The current real-terminal lifecycle test is not that coverage.
-- Decide presentation (CPU versus GPU) before publishing a generic pixel ABI.
-- Keep shutdown ownership explicit if multiple frame consumers are introduced.
-  Do not turn an unexpected borrow into an infinite retry loop.
-
-The current Linux-only Cargo feature remains `terminal-proof`; Android builds
-only the UI shell. No claim of cross-platform native qualification follows from
-compiling the shell or the remote ABI on Linux.
+`benchmark-workload -- ENDPOINT FONT_PATH SHELL_COMMAND` launches an explicit
+finite command in its own 128×40 Session, starts it after the renderer is ready,
+and samples the complete native adapter until child exit (15-second bound).
+For example, use the installed `tui-zoo rain --fps 30 --duration-ms 4000 --seed 7
+--cols 128 --rows 40 --synchronized-output`, or `cells` with `--dose 64`.
+Redirect the workload's stderr to a chosen workstream receipt file to preserve
+producer metrics separately. Samples include repeated observations of the same
+producer frame; their count is not displayed FPS. The harness does not exercise
+Slint upload, UI pacing or presentation and does not alter other Sessions.

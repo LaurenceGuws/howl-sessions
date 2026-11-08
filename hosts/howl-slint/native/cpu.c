@@ -1,0 +1,83 @@
+#include "cpu.h"
+
+/* Straight-alpha source-over onto an opaque destination. Canonical RGBA is
+ * low-to-high R,G,B,A; alpha-mask commands tint their coverage with that color.
+ */
+static void blend(uint8_t *d, uint32_t rgba, unsigned coverage) {
+  unsigned a = (rgba >> 24) * coverage / 255u;
+  for (unsigned n = 0; n < 3; n++)
+    d[n] = (uint8_t)((((rgba >> (8 * n)) & 255u) * a + d[n] * (255 - a) + 127) /
+                     255);
+  d[3] = 255;
+}
+uint32_t cpu_paint(struct cpu_surface *p, const hrc_frame_info *f,
+                   const hrc_command *commands, const hrc_upload *uploads) {
+  if (!f->surface_width || !f->surface_height || f->surface_width > CPU_MAX_SIDE ||
+      f->surface_height > CPU_MAX_SIDE)
+    return 1;
+  p->width = f->surface_width;
+  p->height = f->surface_height;
+  for (size_t n = 0; n < (size_t)p->width * p->height; n++) {
+    uint8_t *d = p->pixels + n * 4;
+    for (unsigned k = 0; k < 3; k++)
+      d[k] = (uint8_t)(f->background_rgba >> (8 * k));
+    d[3] = 255;
+  }
+  for (uint32_t n = 0; n < f->command_count; n++) {
+    const hrc_command *c = &commands[n];
+    const hrc_upload *u = NULL;
+    if (c->tag != HRC_SOLID) {
+      for (uint32_t k = 0; k < f->upload_count; k++)
+        if (uploads[k].info.resource == c->resource &&
+            uploads[k].info.generation == c->generation)
+          u = &uploads[k];
+      if (!u || !c->destination_width || !c->destination_height ||
+          !c->source_width || !c->source_height)
+        return 1;
+    }
+    int x0 = c->destination_x > c->clip_x ? c->destination_x : c->clip_x;
+    int y0 = c->destination_y > c->clip_y ? c->destination_y : c->clip_y;
+    int x1 = c->destination_x + c->destination_width,
+        y1 = c->destination_y + c->destination_height;
+    if (x1 > c->clip_x + c->clip_width)
+      x1 = c->clip_x + c->clip_width;
+    if (y1 > c->clip_y + c->clip_height)
+      y1 = c->clip_y + c->clip_height;
+    if (x0 < 0)
+      x0 = 0;
+    if (y0 < 0)
+      y0 = 0;
+    if (x1 > (int)p->width)
+      x1 = p->width;
+    if (y1 > (int)p->height)
+      y1 = p->height;
+    for (int y = y0; y < y1; y++)
+      for (int x = x0; x < x1; x++) {
+        uint32_t color = c->color_rgba;
+        unsigned alpha = 255;
+        if (u) {
+          uint32_t sx = c->source_x + (uint32_t)(x - c->destination_x) *
+                                          c->source_width /
+                                          c->destination_width;
+          uint32_t sy = c->source_y + (uint32_t)(y - c->destination_y) *
+                                          c->source_height /
+                                          c->destination_height;
+          unsigned bpp = u->info.format == HRC_ALPHA8 ? 1 : 4;
+          size_t offset = (size_t)sy * u->info.stride + (size_t)sx * bpp;
+          if (sx >= u->info.width || sy >= u->info.height ||
+              offset + bpp > u->pixel_len)
+            return 1;
+          if (c->tag == HRC_ALPHA_MASK && bpp == 1)
+            alpha = u->pixels[offset];
+          else if (c->tag == HRC_RGBA && bpp == 4) {
+            const uint8_t *s = u->pixels + offset;
+            color = (uint32_t)s[0] | (uint32_t)s[1] << 8 |
+                    (uint32_t)s[2] << 16 | (uint32_t)s[3] << 24;
+          } else
+            return 1;
+        }
+        blend(p->pixels + ((size_t)y * p->width + x) * 4, color, alpha);
+      }
+  }
+  return 0;
+}

@@ -4,7 +4,7 @@ import { Style } from "style.slint";
 export component StatusBar inherits Rectangle {
     in property <Style> style;
     in property <string> status: "○  Offline";
-    in property <string> detail: "Layout preview";
+    in property <string> detail: "Disconnected";
 
     vertical-stretch: 0;
     background: root.style.palette.chrome;
@@ -16,11 +16,17 @@ export component StatusBar inherits Rectangle {
         spacing: root.style.padding;
         Text {
             text: root.status;
+            min-width: 0px;
+            overflow: elide;
             color: root.style.palette.secondary;
             horizontal-stretch: 1;
         }
         Text {
             text: root.detail;
+            min-width: 0px;
+            overflow: elide;
+            horizontal-stretch: 1;
+            horizontal-alignment: right;
             color: root.style.palette.muted;
         }
     }

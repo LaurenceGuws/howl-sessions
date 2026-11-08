@@ -7,12 +7,7 @@
         .server_client_render = .{
             .url = "https://github.com/LaurenceGuws/howl-sessions/releases/download/server-client-render-v0.1.2-dev.1/server-client-render-0.1.2-dev.tar.gz",
             .hash = "server_client_render-0.1.2-dev-B-OhH5JSAgDTKKHjHT_UWq2u1XMGcdMmLs5qnnC2V46K",
-            .lazy = true,
-        },
-        .howl_instance = .{
-            .url = "https://github.com/LaurenceGuws/howl/releases/download/howl-instance-v0.1.8-dev.1/howl-instance-0.1.8-dev.tar.gz",
-            .hash = "howl_instance-0.1.8-dev-3kR6wU78BgDnokhYMOKUoW33LNG21tw0l25E4_paPYPe",
         },
     },
-    .paths = .{ "build.zig", "build.zig.zon", "terminal.c", "README.md" },
+    .paths = .{ "build.zig", "build.zig.zon", "remote.c", "remote.h", "cpu.c", "cpu.h", "README.md", "test" },
 }

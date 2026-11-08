@@ -3,9 +3,6 @@ name = "howl-slint"
 version = "0.1.0"
 edition = "2024"
 
-[features]
-terminal-proof = []
-
 [lib]
 crate-type = ["rlib", "cdylib"]
 
@@ -19,3 +16,9 @@ slint = { version = "1.18.1", default-features = false, features = ["std", "comp
 cc = "1"
 lucide-slint = "=1.70.0"
 slint-build = "=1.18.1"
+
+# Pixel conversion/compositing is real-time work even in a debug host. Keep
+# debug information and assertions; optimize this package without rebuilding
+# every UI dependency in a different profile. cc inherits this level too.
+[profile.dev.package.howl-slint]
+opt-level = 2

@@ -1,0 +1,82 @@
+import { HorizontalBox } from "std-widgets.slint";
+import { Style } from "style.slint";
+
+component ConnectionAction inherits Rectangle {
+    in property <Style> style;
+    in property <string> text;
+    in property <bool> enabled: true;
+    callback clicked();
+    horizontal-stretch: 0;
+    vertical-stretch: 1;
+    accessible-role: button;
+    accessible-label: root.text;
+    forward-focus: focus;
+    border-radius: root.style.radius;
+    border-width: root.style.stroke;
+    border-color: focus.has-focus ? root.style.palette.accent : root.style.palette.border;
+    background: !root.enabled ? transparent : touch.pressed ? root.style.palette.pressed : touch.has-hover ? root.style.palette.hover : root.style.palette.sidebar;
+    HorizontalBox {
+        padding: root.style.padding;
+        Text { text: root.text; color: root.enabled ? root.style.palette.text : root.style.palette.muted; vertical-alignment: center; }
+    }
+    focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return { root.clicked(); return accept; }
+            return reject;
+        }
+    }
+    touch := TouchArea { enabled: root.enabled; clicked => { focus.focus(); root.clicked(); } }
+}
+
+// Explicit transport address, not credentials or persisted preferences.
+export component ServerConnection inherits Rectangle {
+    in property <Style> style;
+    in-out property <string> endpoint;
+    in property <bool> connected;
+    in property <bool> connecting;
+    callback connect(string);
+    callback disconnect();
+    vertical-stretch: 0;
+    background: root.style.palette.chrome;
+    HorizontalBox {
+        padding: root.style.padding;
+        spacing: root.style.padding;
+        Text { text: "Server"; color: root.style.palette.secondary; vertical-alignment: center; }
+        Rectangle {
+            horizontal-stretch: 1;
+            min-width: 0px;
+            border-radius: root.style.radius;
+            border-width: root.style.stroke;
+            border-color: address.has-focus ? root.style.palette.accent : root.style.palette.border;
+            background: root.style.palette.background;
+            HorizontalBox {
+                padding: root.style.padding;
+                address := TextInput {
+                    text <=> root.endpoint;
+                    single-line: true;
+                    enabled: !root.connecting;
+                    color: root.style.palette.text;
+                    selection-background-color: root.style.palette.selected;
+                    selection-foreground-color: root.style.palette.text;
+                    horizontal-stretch: 1;
+                    min-width: 0px;
+                    vertical-alignment: center;
+                    accepted => { if root.endpoint != "" { root.connect(root.endpoint); } }
+                }
+            }
+        }
+        ConnectionAction {
+            style: root.style;
+            text: root.connected ? "Refresh" : "Connect";
+            enabled: !root.connecting && root.endpoint != "";
+            clicked => { root.connect(root.endpoint); }
+        }
+        ConnectionAction {
+            style: root.style;
+            text: "Disconnect";
+            enabled: root.connecting || root.connected;
+            clicked => { root.disconnect(); }
+        }
+    }
+}
