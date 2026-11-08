@@ -1,6 +1,6 @@
 .{
     .name = .server,
-    .version = "0.1.9-dev",
+    .version = "0.1.10-dev",
     .fingerprint = 0x5a6dd5f6aaf8b115,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{

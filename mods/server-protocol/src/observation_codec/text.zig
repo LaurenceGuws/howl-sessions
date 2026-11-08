@@ -149,11 +149,7 @@ pub fn decode(
             return decodeRecords(allocator, geometry, encoded);
         },
         .zlib => {
-            if (encoded.len <= wire.text_v1.compressed_header_bytes) return error.InvalidSnapshot;
-            const text_len = readU32(encoded[0..wire.text_v1.compressed_header_bytes]);
-            if (text_len == 0 or text_len > wire.maximum_text_snapshot_bytes)
-                return error.SnapshotTooLarge;
-            const body = try inflate(allocator, encoded[wire.text_v1.compressed_header_bytes..], text_len);
+            const body = try inflateBody(allocator, encoded);
             defer allocator.free(body);
             return decodeRecords(allocator, geometry, body);
         },
@@ -176,6 +172,17 @@ pub fn decode(
             return decodeRecords(allocator, geometry, body.items);
         },
     }
+}
+
+/// Unwraps one bounded length-prefixed zlib record body without interpreting
+/// terminal records. Full and delta decoders retain their separate grammars.
+/// The caller owns the exact-size returned allocation.
+pub fn inflateBody(allocator: std.mem.Allocator, encoded: []const u8) values.Error![]u8 {
+    if (encoded.len > wire.maximum_text_snapshot_bytes) return error.SnapshotTooLarge;
+    if (encoded.len <= wire.text_v1.compressed_header_bytes) return error.InvalidSnapshot;
+    const length = readU32(encoded[0..wire.text_v1.compressed_header_bytes]);
+    if (length == 0 or length > wire.maximum_text_snapshot_bytes) return error.SnapshotTooLarge;
+    return inflate(allocator, encoded[wire.text_v1.compressed_header_bytes..], length);
 }
 
 fn inflate(allocator: std.mem.Allocator, encoded: []const u8, expected: u32) values.Error![]u8 {

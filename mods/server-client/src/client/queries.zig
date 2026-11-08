@@ -74,9 +74,22 @@ pub fn releaseCache(cache: *Cache) void {
 /// Completes one raw/delta transaction and copies an independent immutable view.
 /// Pre-I/O rejection preserves cache; any later failure resets it for revision-zero retry.
 pub fn observeCached(cache: *Cache, connection: *terminal.Connection, result_allocator: std.mem.Allocator, after: u64, offset: u32) Error!*view.Snapshot {
+    return observeCachedMode(cache, connection, result_allocator, after, offset, false);
+}
+
+/// Same cache/snapshot ownership with explicit compressed-delta wire opt-in.
+pub fn observeCachedCompressed(cache: *Cache, connection: *terminal.Connection, result_allocator: std.mem.Allocator, after: u64, offset: u32) Error!*view.Snapshot {
+    return observeCachedMode(cache, connection, result_allocator, after, offset, true);
+}
+
+fn observeCachedMode(cache: *Cache, connection: *terminal.Connection, result_allocator: std.mem.Allocator, after: u64, offset: u32, compressed: bool) Error!*view.Snapshot {
     const state = cacheImpl(cache);
     if (!std.meta.eql(state.ready, connection.identity())) return error.InvalidArgument;
-    state.raw.sendDeltaRequest(connection, after, offset) catch |failure| switch (failure) {
+    const sent = if (compressed)
+        state.raw.sendCompressedDeltaRequest(connection, after, offset)
+    else
+        state.raw.sendDeltaRequest(connection, after, offset);
+    sent catch |failure| switch (failure) {
         error.DeltaBaselineMismatch => return error.InvalidArgument,
         else => return failure,
     };
@@ -514,10 +527,13 @@ const SocketFixture = struct {
         try writeAll(self.peer, payload);
     }
     fn consumeRequest(self: *SocketFixture) !void {
+        return self.consumeKind(.observe_delta);
+    }
+    fn consumeKind(self: *SocketFixture, kind: protocol.Kind) !void {
         var header: [protocol.header_bytes]u8 = undefined;
         try readAll(self.peer, &header);
         const decoded = try protocol.decodeHeader(&header);
-        try std.testing.expect(decoded.kind == .observe_delta and decoded.payload_len == protocol.payload_bytes.observe);
+        try std.testing.expect(decoded.kind == kind and decoded.payload_len == protocol.payload_bytes.observe);
         var payload: [protocol.payload_bytes.observe]u8 = undefined;
         try readAll(self.peer, &payload);
     }
@@ -957,4 +973,53 @@ test "native scrolled viewport retains representable coordinates below an unproj
     var span: c.hsc_selection_span = undefined;
     try std.testing.expectError(error.CoordinatesTooLarge, selectionSpan(overflow, &range, 0, &span));
     try std.testing.expect(span.found == 0);
+}
+
+test "compressed cached foreign query preserves independent snapshots and attachment identity" {
+    if (comptime @import("builtin").os.tag != .linux) return;
+    const allocator = std.testing.allocator;
+    var fixture = try SocketFixture.init(allocator, testReady());
+    defer fixture.deinit();
+    const cache = try createCache(allocator, fixture.connection);
+    defer releaseCache(cache);
+    const full = try rawBody('A', 'Z');
+    try fixture.snapshot(100, .snapshot_raw_data, &full);
+    const first = try observeCachedCompressed(cache, fixture.connection, allocator, 0, 0);
+    defer view.deinit(first);
+    try fixture.consumeKind(.observe_delta_compressed);
+    const delta = try deltaBody('B');
+    var encoded: std.Io.Writer.Allocating = .init(allocator);
+    defer encoded.deinit();
+    var prefix: [4]u8 = undefined;
+    std.mem.writeInt(u32, &prefix, delta.len, .big);
+    try encoded.writer.writeAll(&prefix);
+    const work = try allocator.alloc(u8, std.compress.flate.max_window_len);
+    defer allocator.free(work);
+    var compressor = try std.compress.flate.Compress.init(&encoded.writer, work, .zlib, .fastest);
+    try compressor.writer.writeAll(&delta);
+    try compressor.finish();
+    const body = encoded.written();
+    try fixture.snapshot(101, .snapshot_delta_compressed_data, body);
+    const next = try observeCachedCompressed(cache, fixture.connection, allocator, 100, 0);
+    defer view.deinit(next);
+    try fixture.consumeKind(.observe_delta_compressed);
+    try std.testing.expectEqual(@as(u32, 'A'), view.scalars(first)[0]);
+    try std.testing.expectEqual(@as(u32, 'B'), view.scalars(next)[0]);
+    try std.testing.expectEqual(@as(u64, 100), changes(next).base_revision);
+    try std.testing.expectError(error.InvalidArgument, observeCachedCompressed(cache, fixture.connection, allocator, 101, 1));
+    try std.testing.expectError(error.InvalidArgument, observeCachedCompressed(cache, fixture.connection, allocator, 7, 0));
+    try fixture.expectNoRequest();
+    var ready = testReady();
+    ready.client_id += 1;
+    var other = try SocketFixture.init(allocator, ready);
+    defer other.deinit();
+    try std.testing.expectError(error.InvalidArgument, observeCachedCompressed(cache, other.connection, allocator, 0, 0));
+    try other.expectNoRequest();
+    // The old wire mode remains usable with the same accepted baseline.
+    try fixture.snapshot(102, .snapshot_delta_data, &delta);
+    const old_mode = try observeCached(cache, fixture.connection, allocator, 101, 0);
+    defer view.deinit(old_mode);
+    try fixture.consumeRequest();
+    try std.testing.expectEqual(@as(u32, 'B'), view.scalars(old_mode)[0]);
+    try std.testing.expectEqual(@as(u32, 'A'), view.scalars(first)[0]);
 }

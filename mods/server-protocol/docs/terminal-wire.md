@@ -60,6 +60,8 @@ Frame kinds are:
 | 61 | `snapshot_properties` | endpoint → client |
 | 62 | `observe_packed` | client → endpoint |
 | 63 | `snapshot_packed_data` | endpoint → client |
+| 64 | `observe_delta_compressed` | client → endpoint |
+| 65 | `snapshot_delta_compressed_data` | endpoint → client |
 
 Invalid magic, framing version, reserved header bits, frame kind, or a declared
 payload above 1 MiB is a framing failure. The endpoint closes a connection on a
@@ -87,7 +89,7 @@ and accepts only the terminal kinds listed above. The Server queues ready before
 response to already-buffered terminal input.
 
 Control uses kinds 1–13 and an 8 KiB payload ceiling. Terminal interaction uses
-kinds 32–63 and a 1 MiB response ceiling; terminal requests remain at most 64 KiB.
+kinds 32–65 and a 1 MiB response ceiling; terminal requests remain at most 64 KiB.
 Both phases use the same SRVR version 2 envelope. Wrong-phase kinds are framing
 failures. Version 2 is the complete wire boundary; no legacy Server terminal decoder is kept.
 
@@ -218,7 +220,7 @@ fall back independently to verbatim payloads. The packed bytes are compressed wi
 fastest zlib/DEFLATE. The client inflates and unpacks them back to byte-identical
 `text_v1` before the existing semantic decoder runs.
 
-`observe_delta` is the framing-v7 revision-relative lane. Its `after_revision`
+`observe_delta` is the revision-relative lane. Its `after_revision`
 names the caller's exact baseline. If the endpoint cannot prove that baseline
 against its bounded row mirror, it responds with ordinary `snapshot_raw_data`;
 that fallback is a complete standalone `text_v1` snapshot. When the baseline is
@@ -228,6 +230,29 @@ one copy per client. A valid client baseline can therefore still receive a
 complete raw fallback when another delta observer has advanced or replaced the
 endpoint cache; clients must treat that fallback as the normal resynchronization
 path. There is still no feature negotiation.
+
+### Explicit compressed delta carriage
+
+`observe_delta_compressed` uses the same 12-byte request and exact accepted
+predecessor/history-window rules as `observe_delta`. It is opt-in, not an
+alternative response to an old request. Peers must support these new kinds;
+there is no automatic negotiation, retry, or host default change.
+
+A full baseline or resynchronization uses `snapshot_raw_data` exactly as before.
+A proven delta instead uses only `snapshot_delta_compressed_data` chunks.
+Concatenate those chunks, read a big-endian u32 uncompressed byte count, then
+inflate the remaining single zlib stream. Both the complete encoded envelope
+and decoded record body are independently bounded by 4 MiB. Require exact output
+length, checksum, end of stream and no trailing bytes. The decoded bytes are
+ordinary `text_delta_v2`: existing row shift, changed rows, reuse markers and
+hyperlinks, decoded against the existing cache. This does not use
+`text_pack_v1`, whose full-text grammar cannot represent delta reuse.
+
+Raw, raw-delta, compressed-delta and other data kinds cannot mix within a cut.
+Compressed delta is valid only after the matching compressed request and exact
+nonzero baseline. Graphics, properties, snapshot begin/end and ownership remain
+unchanged. Failure invalidates provisional rows and predecessor together; a
+fresh attachment or revision-zero request establishes a new full baseline.
 
 ### `snapshot_begin`
 

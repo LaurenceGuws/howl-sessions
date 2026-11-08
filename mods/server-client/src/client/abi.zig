@@ -824,6 +824,17 @@ pub export fn hsc_observe_cached(raw: ?*c.hsc_attachment, cache: ?*c.hsc_cache, 
     return c.HSC_OK;
 }
 
+/// Completes one explicitly requested compressed-delta observation and publishes an independent snapshot.
+pub export fn hsc_observe_cached_compressed(raw: ?*c.hsc_attachment, cache: ?*c.hsc_cache, after: u64, offset: u32, out: ?*?*c.hsc_snapshot) u32 {
+    const slot = out orelse return c.HSC_INVALID_ARGUMENT;
+    if (slot.* != null) return c.HSC_INVALID_ARGUMENT;
+    const connection = raw orelse return c.HSC_INVALID_ARGUMENT;
+    const owner = cache orelse return c.HSC_INVALID_ARGUMENT;
+    const snapshot = queries.observeCachedCompressed(convert(*queries.Cache, owner), convert(*terminal.Connection, connection), heap, after, offset) catch |err| return failure(err);
+    slot.* = convert(*c.hsc_snapshot, snapshot);
+    return c.HSC_OK;
+}
+
 /// Copies change-mask, predecessor and row-shift presence without a cache borrow.
 pub export fn hsc_snapshot_changes(raw: ?*const c.hsc_snapshot, out: ?*c.hsc_changes) u32 {
     const result = out orelse return c.HSC_INVALID_ARGUMENT;

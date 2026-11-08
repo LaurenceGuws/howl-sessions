@@ -344,6 +344,12 @@ uint32_t hsc_cache_create(uint32_t version, hsc_attachment *, hsc_cache **out);
 void hsc_cache_release(hsc_cache **);
 uint32_t hsc_observe_cached(hsc_attachment *, hsc_cache *, uint64_t after_revision,
     uint32_t history_offset, hsc_snapshot **out);
+/* Explicit compressed-delta wire opt-in, requiring a supporting Server.
+ * Same cache identity/baseline and immutable snapshot contract as above.
+ * Full raw fallback establishes/resynchronizes the baseline. No negotiation or
+ * implicit retry against an older Server is performed. */
+uint32_t hsc_observe_cached_compressed(hsc_attachment *, hsc_cache *, uint64_t after_revision,
+    uint32_t history_offset, hsc_snapshot **out);
 /* Known mask differs from absent mask (all rows potentially changed).
  * base_revision uses delivery revision. Absent fields are zero; row_count is
  * the exact known-mask extent, or zero when absent. Copy mask as 0/1 bytes,

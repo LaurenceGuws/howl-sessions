@@ -1,7 +1,7 @@
 //! Server-owned terminal interaction contract over an ordered byte stream.
 //!
 //! The wire is request-driven. A client has at most one outstanding observation
-//! request (`observe`, `observe_raw`, or `observe_delta`). The endpoint answers
+//! request (full or explicit raw/compressed delta). The endpoint answers
 //! with one coherent snapshot at a single
 //! revision, then the client asks again from that revision. This deliberately
 //! avoids a server-side stream queue per observer: slow clients may see a newer
@@ -92,6 +92,10 @@ pub const Kind = enum(u8) {
     observe_packed = 62,
     /// Carries Huffman-zlib compressed text_pack_v1 bytes for one packed response.
     snapshot_packed_data = 63,
+    /// Requests revision-relative text_delta_v2 with zlib carriage; raw full fallback.
+    observe_delta_compressed = 64,
+    /// Length-prefixed zlib text_delta_v2, never a standalone full snapshot.
+    snapshot_delta_compressed_data = 65,
 };
 
 /// One fixed framing header. Multi-byte integers are big-endian on the wire.

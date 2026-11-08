@@ -67,3 +67,9 @@ fetch. `tool/image_identity_check.dart` covers bounds without a live Server.
 These additions use existing C ABI v1 functions. They do not enable graphics in
 Flutter or change Render's backend residency contract; that two-phase staging
 work remains separate.
+
+`hsc_observe_cached_compressed` explicitly opts into compressed revision deltas.
+The peer must implement `observe_delta_compressed`; this is not negotiated or
+automatically retried as another mode. Cache, cancellation and immutable snapshot
+ownership match `hsc_observe_cached`. Existing `hsc_observe` remains packed and
+works with earlier peers.

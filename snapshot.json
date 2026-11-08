@@ -7,9 +7,9 @@
     "core_release": "1199410ee47d6fc3ffadae57e9f60416d3fb2091"
   },
   "packages": {
-    "mods/server": "0.1.9-dev",
-    "mods/server-protocol": "0.1.1-dev",
-    "mods/server-client": "0.1.8-dev",
+    "mods/server": "0.1.10-dev",
+    "mods/server-protocol": "0.1.2-dev",
+    "mods/server-client": "0.1.9-dev",
     "mods/server-client-render": "0.1.2-dev",
     "hosts/howl-cli": "0.1.7-dev",
     "hosts/howl-web": "0.1.8-dev",

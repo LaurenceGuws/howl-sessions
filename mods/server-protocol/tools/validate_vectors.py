@@ -25,7 +25,7 @@ MAXIMUM_TEXT_SNAPSHOT_BYTES = 4 * 1024 * 1024
 MAXIMUM_PACKED_TEXT_BYTES = MAXIMUM_TEXT_SNAPSHOT_BYTES + 0xFFFF
 
 CONTROL_KINDS = {1: 'hello', 2: 'welcome', 3: 'status', 4: 'status_snapshot', 5: 'observe_tree', 6: 'tree_snapshot', 7: 'create_session', 8: 'close_session', 9: 'create_instance', 10: 'close_instance', 11: 'attach_instance', 12: 'attach_ready', 13: 'control_result'}
-TERMINAL_KINDS = {32: 'observe', 33: 'snapshot_begin', 34: 'snapshot_data', 35: 'snapshot_end', 36: 'input', 37: 'assign_leader', 38: 'resize', 39: 'signal', 40: 'result', 41: 'interaction_state', 42: 'interaction_state_snapshot', 43: 'assign_consequence_leader', 44: 'consequence_observe', 45: 'consequence_begin', 46: 'consequence_data', 47: 'consequence_end', 48: 'consequence_consume', 49: 'consequence_reply', 50: 'text_extract', 51: 'text_extract_data', 52: 'snapshot_graphics', 53: 'image_request', 54: 'image_begin', 55: 'image_data', 56: 'image_end', 57: 'observe_raw', 58: 'snapshot_raw_data', 59: 'observe_delta', 60: 'snapshot_delta_data', 61: 'snapshot_properties', 62: 'observe_packed', 63: 'snapshot_packed_data'}
+TERMINAL_KINDS = {32: 'observe', 33: 'snapshot_begin', 34: 'snapshot_data', 35: 'snapshot_end', 36: 'input', 37: 'assign_leader', 38: 'resize', 39: 'signal', 40: 'result', 41: 'interaction_state', 42: 'interaction_state_snapshot', 43: 'assign_consequence_leader', 44: 'consequence_observe', 45: 'consequence_begin', 46: 'consequence_data', 47: 'consequence_end', 48: 'consequence_consume', 49: 'consequence_reply', 50: 'text_extract', 51: 'text_extract_data', 52: 'snapshot_graphics', 53: 'image_request', 54: 'image_begin', 55: 'image_data', 56: 'image_end', 57: 'observe_raw', 58: 'snapshot_raw_data', 59: 'observe_delta', 60: 'snapshot_delta_data', 61: 'snapshot_properties', 62: 'observe_packed', 63: 'snapshot_packed_data', 64: 'observe_delta_compressed', 65: 'snapshot_delta_compressed_data'}
 KINDS = CONTROL_KINDS | TERMINAL_KINDS
 
 INPUT_KINDS = {1: "bytes", 2: "paste", 3: "key", 4: "mouse", 5: "focus"}
@@ -559,7 +559,7 @@ def decode_text_records(payload: bytes, snapshot: dict) -> list[dict]:
             snapshot["presentation"] = decoded
             snapshot["phase"] = "links" if snapshot["begin"]["rows"] == 0 else "rows"
         elif name == "row_shift":
-            require(snapshot["body_encoding"] == "delta", "text_row_shift_encoding")
+            require(snapshot["body_encoding"] in ("delta", "delta_compressed"), "text_row_shift_encoding")
             require(snapshot["phase"] == "rows" and snapshot["presentation"] is not None, "text_record_order")
             require(snapshot["row_shift"] is None and not snapshot["text_rows"], "text_row_shift_duplicate")
             require(len(record_payload) == 2, "text_row_shift_size")
@@ -573,12 +573,12 @@ def decode_text_records(payload: bytes, snapshot: dict) -> list[dict]:
             decoded = {"rows_up": rows_up}
         elif name == "row":
             require(snapshot["phase"] == "rows", "text_record_order")
-            if snapshot["body_encoding"] == "delta":
+            if snapshot["body_encoding"] in ("delta", "delta_compressed"):
                 require(snapshot["row_shift"] is not None, "text_row_shift_missing")
             require(len(snapshot["text_rows"]) < snapshot["begin"]["rows"], "text_row_count")
             row_index = len(snapshot["text_rows"])
             if not record_payload:
-                require(snapshot["body_encoding"] == "delta", "text_row_reuse_encoding")
+                require(snapshot["body_encoding"] in ("delta", "delta_compressed"), "text_row_reuse_encoding")
                 reuse_rows = snapshot["reuse_rows"]
                 require(reuse_rows is not None and row_index < len(reuse_rows), "snapshot_delta_baseline_rows")
                 decoded = reuse_rows[row_index]
@@ -676,16 +676,16 @@ def finish_snapshot(snapshot: dict, end: dict) -> dict:
     encoded = bytes(snapshot["encoded_body"])
     encoding = snapshot["body_encoding"]
     require(encoding is not None, "snapshot_data_missing")
+    if encoding in ("delta", "delta_compressed"):
+        request = snapshot["delta_request"]
+        baseline = snapshot["baseline"]
+        require(request is not None and request["after_revision"] != 0, "snapshot_delta_request")
+        require(baseline is not None, "snapshot_delta_baseline")
+        require(baseline["begin"]["revision"] == request["after_revision"], "snapshot_delta_revision")
+        require(baseline["begin"]["history_offset"] == request["history_offset"], "snapshot_delta_history")
+        require(baseline["begin"]["rows"] == begin["rows"] and baseline["begin"]["columns"] == begin["columns"], "snapshot_delta_geometry")
     if encoding == "raw" or encoding == "delta":
         require(0 < len(encoded) <= MAXIMUM_TEXT_SNAPSHOT_BYTES, "snapshot_raw_limit")
-        if encoding == "delta":
-            request = snapshot["delta_request"]
-            baseline = snapshot["baseline"]
-            require(request is not None and request["after_revision"] != 0, "snapshot_delta_request")
-            require(baseline is not None, "snapshot_delta_baseline")
-            require(baseline["begin"]["revision"] == request["after_revision"], "snapshot_delta_revision")
-            require(baseline["begin"]["history_offset"] == request["history_offset"], "snapshot_delta_history")
-            require(baseline["begin"]["rows"] == begin["rows"] and baseline["begin"]["columns"] == begin["columns"], "snapshot_delta_geometry")
         body = encoded
     elif encoding == "packed":
         require(len(encoded) > 8, "snapshot_compressed_size")
@@ -715,7 +715,7 @@ def finish_snapshot(snapshot: dict, end: dict) -> dict:
         require(inflater.eof and not inflater.unused_data and not inflater.unconsumed_tail, "snapshot_compression")
         require(len(body) == raw_len, "snapshot_raw_size")
     decode_text_records(body, snapshot)
-    require((encoding == "delta") == (snapshot["row_shift"] is not None), "text_row_shift_missing")
+    require((encoding in ("delta", "delta_compressed")) == (snapshot["row_shift"] is not None), "text_row_shift_missing")
     require(snapshot["presentation"] is not None, "text_presentation_missing")
     require(len(snapshot["text_rows"]) == begin["rows"], "text_row_count")
     require(snapshot["referenced_links"] == set(snapshot["resolved_links"]), "text_unresolved_hyperlink")
@@ -908,7 +908,7 @@ def decode_fixed_payload(kind: int, payload: bytes) -> dict:
     if kind in CONTROL_KINDS:
         # Control operations have Zig semantic proofs; this corpus witnesses their framing.
         return {"bytes_hex": payload.hex()}
-    if kind in (32, 57, 59, 62):
+    if kind in (32, 57, 59, 62, 64):
         return decode_observe(payload)
     if kind == 33:
         return decode_snapshot_begin(payload)
@@ -974,12 +974,13 @@ def decode_stream(data: bytes) -> dict:
                         baseline = prior
                         break
             snapshot = new_snapshot(decoded, pending_delta_request, baseline)
-        elif kind in (34, 58, 60, 63):
+        elif kind in (34, 58, 60, 63, 65):
             require(snapshot is not None, "snapshot_data_without_begin")
             require(snapshot["graphics"] is None, "snapshot_graphics_order")
-            encoding = {34: "compressed", 58: "raw", 60: "delta", 63: "packed"}[kind]
-            if encoding == "delta":
+            encoding = {34: "compressed", 58: "raw", 60: "delta", 63: "packed", 65: "delta_compressed"}[kind]
+            if encoding in ("delta", "delta_compressed"):
                 require(snapshot["delta_request"] is not None, "snapshot_delta_request")
+                require(snapshot["delta_request"]["compressed"] == (encoding == "delta_compressed"), "snapshot_delta_carriage")
             require(snapshot["body_encoding"] is None or snapshot["body_encoding"] == encoding, "snapshot_data_encoding")
             snapshot["body_encoding"] = encoding
             encoded_limit = MAXIMUM_PACKED_TEXT_BYTES if encoding == "packed" else MAXIMUM_TEXT_SNAPSHOT_BYTES
@@ -1024,8 +1025,8 @@ def decode_stream(data: bytes) -> dict:
         else:
             require(snapshot is None and image_resource is None, "snapshot_interleaved")
             decoded = decode_fixed_payload(kind, payload)
-            if kind == 59:
-                pending_delta_request = decoded
+            if kind in (59, 64):
+                pending_delta_request = dict(decoded, compressed=(kind == 64))
         frames.append({"kind": name, "payload": decoded})
 
     require(snapshot is None, "snapshot_unterminated")
