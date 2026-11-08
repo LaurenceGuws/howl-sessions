@@ -78,7 +78,28 @@ static int mask_one_to_one(void) {
     CHECK(cpu_paint(&surface, &info, &c, &u) != 0);
     return 0;
 }
+static int background_equivalence(void) {
+    uint8_t storage[4 * 7 * 5 + 2];
+    /* Deliberately unaligned destination: no typed u32 store is permitted. */
+    struct cpu_surface surface = {.pixels = storage + 1};
+    for (unsigned a = 0; a < 256; a++) {
+        uint32_t rgba = a << 24 | ((a * 73u & 255u) << 16) |
+            ((a * 37u & 255u) << 8) | (a * 19u & 255u);
+        hrc_frame_info info = {.surface_width = 7, .surface_height = 5,
+            .background_rgba = rgba};
+        memset(storage, 0x5a, sizeof storage);
+        CHECK(cpu_paint(&surface, &info, NULL, NULL) == 0);
+        CHECK(storage[0] == 0x5a && storage[sizeof storage - 1] == 0x5a);
+        for (unsigned i = 0; i < 35; i++) {
+            for (unsigned channel = 0; channel < 3; channel++)
+                CHECK(surface.pixels[i * 4 + channel] == (uint8_t)(rgba >> (channel * 8)));
+            CHECK(surface.pixels[i * 4 + 3] == 255);
+        }
+    }
+    return 0;
+}
 int main(void) {
+    CHECK(background_equivalence() == 0);
     CHECK(blend_equivalence() == 0);
     CHECK(mask_one_to_one() == 0);
     uint8_t pixels[16] = {0};

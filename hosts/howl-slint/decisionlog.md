@@ -182,6 +182,12 @@ stayed around 1.2–1.3 seconds. These are CPU samples, not displayed FPS.
 A checked 1:1 alpha-mask row path also reduced native dense-Cells CPU about
 16% in repeated Home runs, with no meaningful Rain improvement.
 
+Opaque framebuffer and solid fills precompute color bytes, destination and stride
+outside the pixel loop. This is not a new renderer: it prevents potential pointer
+aliasing from forcing repeated loads in ARM Clang. Exact-byte and unaligned-buffer
+tests protect behavior. Matched Android native paint CPU median fell from about
+43 ms to 4.1 ms at 2128×962; this is not an end-to-end frame-rate claim.
+
 No ABI change is justified by these results. Full CPU composition and image
 upload remain. A residency-cache prototype saved only about 4% native Rain CPU
 and did not consistently help Cells, so the additional cache ownership and
@@ -207,3 +213,10 @@ scale changes and Android orientation changes still need device qualification.
 One Note10 Rain sample used 5.43 CPU seconds over 8 seconds at physical resolution,
 versus 3.60 at the previous logical resolution; idle remained below the 10 ms
 CPU-clock resolution over 8 seconds. These samples do not establish displayed FPS.
+
+The post-fix Note10 native-buffer trace queued about 17.6 frames/s versus 14.3
+before, but still had 200–350 ms presentation gaps already present before buffer
+submission. An independent ping over the configured mesh route also reached
+277 ms RTT. TCP and Unix-over-SSH native probes both retained large observation
+waits. Do not attribute those upstream stalls to compositor CPU or claim this
+fill change eliminates jank. No TCP/VPN/firewall settings were changed.

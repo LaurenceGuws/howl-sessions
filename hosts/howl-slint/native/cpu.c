@@ -1,4 +1,5 @@
 #include "cpu.h"
+#include <string.h>
 
 /* Straight-alpha source-over onto an opaque destination. Canonical RGBA is
  * low-to-high R,G,B,A; alpha-mask commands tint their coverage with that color.
@@ -24,12 +25,13 @@ uint32_t cpu_paint(struct cpu_surface *p, const hrc_frame_info *f,
     return 1;
   p->width = f->surface_width;
   p->height = f->surface_height;
-  for (size_t n = 0; n < (size_t)p->width * p->height; n++) {
-    uint8_t *d = p->pixels + n * 4;
-    for (unsigned k = 0; k < 3; k++)
-      d[k] = (uint8_t)(f->background_rgba >> (8 * k));
-    d[3] = 255;
-  }
+  const uint8_t background[4] = {
+      (uint8_t)f->background_rgba, (uint8_t)(f->background_rgba >> 8),
+      (uint8_t)(f->background_rgba >> 16), 255};
+  uint8_t *pixels = p->pixels;
+  size_t pixel_count = (size_t)p->width * p->height;
+  for (size_t n = 0; n < pixel_count; n++)
+    memcpy(pixels + n * 4, background, sizeof background);
   for (uint32_t n = 0; n < f->command_count; n++) {
     const hrc_command *c = &commands[n];
     const hrc_upload *u = NULL;
@@ -66,11 +68,14 @@ uint32_t cpu_paint(struct cpu_surface *p, const hrc_frame_info *f,
       uint8_t r = (uint8_t)c->color_rgba;
       uint8_t g = (uint8_t)(c->color_rgba >> 8);
       uint8_t b = (uint8_t)(c->color_rgba >> 16);
-      for (int y = y0; y < y1; y++)
-        for (int x = x0; x < x1; x++) {
-          uint8_t *d = p->pixels + ((size_t)y * p->width + x) * 4;
-          d[0] = r; d[1] = g; d[2] = b; d[3] = 255;
-        }
+      const uint8_t color[4] = {r, g, b, 255};
+      const size_t stride = (size_t)p->width * 4;
+      uint8_t *pixels = p->pixels;
+      for (int y = y0; y < y1; y++) {
+        uint8_t *row = pixels + (size_t)y * stride;
+        for (int x = x0; x < x1; x++)
+          memcpy(row + (size_t)x * 4, color, sizeof color);
+      }
       continue;
     }
     /* Glyph masks normally map atlas pixels 1:1. Validate the clipped span
