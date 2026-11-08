@@ -1,7 +1,7 @@
 # Native boundary
 
 `build.zig.zon` pins the published Client Render composition by exact hash.
-It exports Client 0.1.8-dev and Client Render 0.1.2-dev as
+It exports Client 0.1.9-dev and Client Render 0.1.3-dev as
 `libhowl_sessions_native.so`, with the matching Client/Render/VT headers.
 Transitive owners pin VT/Text/Render themselves. No local Instance or PTY is
 linked into this host, and no sibling checkout is an implicit dependency.
@@ -96,3 +96,7 @@ live-frame parity. For nonempty pixel parity, run a finite `printf` fixture with
 Unicode, wide/combining text, colors and styles, and `\033[?25l` to hide the cursor.
 When hidden, two independently initialized canonical renderers must yield exactly
 equal RGBA pixels. Visible cursor age is deliberately excluded from that claim.
+
+The composition also exports `hsc_observe_cached_compressed` for peers that
+explicitly support the new request. The host still uses packed observations;
+pinning this additive release does not switch its wire mode or upgrade a Server.
