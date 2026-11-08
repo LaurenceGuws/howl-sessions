@@ -1,14 +1,13 @@
 mod state;
-mod ui;
 
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use state::ShellState;
 use std::cell::RefCell;
-use ui::App;
+
+slint::include_modules!();
 
 fn main() -> Result<(), slint::PlatformError> {
     let app = App::new()?;
-    app.set_style(ui::style::defaults());
     let state = RefCell::new(ShellState::default());
     app.set_sessions(ModelRc::new(VecModel::from(
         state
@@ -31,7 +30,6 @@ fn main() -> Result<(), slint::PlatformError> {
         {
             app.set_selected_index(index as i32);
             app.set_selected_title(state.selected_title().into());
-            app.set_show_sessions(false);
         }
     });
     app.run()

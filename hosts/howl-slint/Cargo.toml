@@ -5,3 +5,7 @@ edition = "2024"
 
 [dependencies]
 slint = "1.18.1"
+
+[build-dependencies]
+lucide-slint = "=1.70.0"
+slint-build = "=1.18.1"

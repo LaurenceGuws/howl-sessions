@@ -1,0 +1,102 @@
+import { IconSet } from "@lucide";
+import { VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { ToolButton } from "tool-button.slint";
+import { Style } from "style.slint";
+
+export component SessionList inherits Rectangle {
+    in property <Style> style;
+    in property <[string]> sessions;
+    in property <int> selected-index;
+    out property <length> content-minimum: content.min-width;
+    in-out property <length> retained-width: 0px;
+    callback toggle-sessions();
+    callback select-session(int);
+
+    horizontal-stretch: 0;
+    preferred-width: root.retained-width > 0px ? max(content.min-width, root.retained-width) : content.preferred-width;
+    background: root.style.palette.sidebar;
+    content := VerticalBox {
+        padding: 0px;
+        spacing: 0px;
+        HorizontalBox {
+            vertical-stretch: 0;
+            padding: 0px;
+            spacing: 0px;
+            HorizontalBox {
+                padding: root.style.padding;
+                horizontal-stretch: 1;
+                Text {
+                    text: "Howl";
+                    font-weight: root.style.emphasis;
+                    color: root.style.palette.text;
+                    horizontal-stretch: 1;
+                    vertical-alignment: center;
+                }
+            }
+            options-button := ToolButton {
+                style: root.style;
+                icon: IconSet.Ellipsis;
+                label: "Options";
+                clicked => { options.show(); }
+            }
+            ToolButton {
+                style: root.style;
+                icon: IconSet.ChevronsLeft;
+                label: "Hide sessions";
+                clicked => { root.toggle-sessions(); }
+            }
+        }
+        VerticalBox {
+            padding: root.style.padding;
+            spacing: root.style.padding;
+            Text {
+                text: "Sessions";
+                font-size: 0.85rem;
+                color: root.style.palette.muted;
+            }
+            for session[index] in root.sessions: Rectangle {
+                vertical-stretch: 0;
+                border-radius: root.style.radius;
+                border-width: root.style.stroke;
+                border-color: root.selected-index == index ? root.style.palette.selection-border : transparent;
+                background: root.selected-index == index ? root.style.palette.selected : (row-input.has-hover ? root.style.palette.hover : transparent);
+                HorizontalBox {
+                    padding: root.style.padding;
+                    spacing: root.style.padding;
+                    Text {
+                        text: ">_";
+                        font-family: "monospace";
+                        color: root.selected-index == index ? root.style.palette.accent : root.style.palette.muted;
+                    }
+                    Text {
+                        text: session;
+                        color: root.selected-index == index ? root.style.palette.text : root.style.palette.secondary;
+                        horizontal-stretch: 1;
+                    }
+                }
+                row-input := TouchArea { clicked => { root.select-session(index); } }
+            }
+            Rectangle { vertical-stretch: 1; }
+        }
+    }
+    options := PopupWindow {
+        x: options-button.x;
+        y: options-button.y + options-button.height;
+        close-policy: close-on-click-outside;
+        Rectangle {
+            background: root.style.palette.chrome;
+            border-width: root.style.stroke;
+            border-color: root.style.palette.border;
+            VerticalBox {
+                padding: root.style.padding;
+                spacing: root.style.padding;
+                ToolButton {
+                    style: root.style;
+                    text: "Hide sessions";
+                    clicked => { root.toggle-sessions(); options.close(); }
+                }
+                Text { text: "Layout preview · no connection"; color: root.style.palette.muted; }
+            }
+        }
+    }
+}

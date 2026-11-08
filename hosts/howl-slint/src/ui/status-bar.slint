@@ -1,0 +1,25 @@
+import { HorizontalBox } from "std-widgets.slint";
+import { Style } from "style.slint";
+
+export component StatusBar inherits Rectangle {
+    in property <Style> style;
+
+    vertical-stretch: 0;
+    background: root.style.palette.chrome;
+    HorizontalBox {
+        padding-left: root.style.padding;
+        padding-right: root.style.padding;
+        padding-top: root.style.spacing;
+        padding-bottom: root.style.spacing;
+        spacing: root.style.padding;
+        Text {
+            text: "○  Offline";
+            color: root.style.palette.secondary;
+            horizontal-stretch: 1;
+        }
+        Text {
+            text: "Layout preview";
+            color: root.style.palette.muted;
+        }
+    }
+}

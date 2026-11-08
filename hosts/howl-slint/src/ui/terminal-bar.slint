@@ -1,0 +1,54 @@
+import { IconSet } from "@lucide";
+import { VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { Style } from "style.slint";
+import { ToolButton } from "tool-button.slint";
+
+export component TerminalBar inherits Rectangle {
+    in property <Style> style;
+    in property <string> selected-title;
+    in property <bool> show-sessions;
+    callback toggle-sessions();
+
+    vertical-stretch: 0;
+    background: root.style.palette.terminal;
+    VerticalBox {
+        padding: 0px;
+        spacing: 0px;
+        Rectangle {
+            vertical-stretch: 0;
+            background: root.style.palette.chrome;
+            HorizontalBox {
+                padding: 0px;
+                spacing: 0px;
+                if !root.show-sessions: ToolButton {
+                    style: root.style;
+                    icon: IconSet.ChevronsRight;
+                    label: "Show sessions";
+                    clicked => { root.toggle-sessions(); }
+                }
+                active-tab := Rectangle {
+                    horizontal-stretch: 0;
+                    background: root.style.palette.terminal;
+                    HorizontalBox {
+                        padding: root.style.padding;
+                        spacing: root.style.padding;
+                        Text { text: ">_"; font-family: "monospace"; color: root.style.palette.accent; }
+                        Text {
+                            text: root.selected-title;
+                            font-weight: root.style.emphasis;
+                            color: root.style.palette.text;
+                        }
+                    }
+                    Rectangle {
+                        y: parent.height - self.height;
+                        width: parent.width;
+                        height: root.style.stroke;
+                        background: root.style.palette.accent;
+                    }
+                }
+                Rectangle { horizontal-stretch: 1; }
+
+            }
+        }
+    }
+}

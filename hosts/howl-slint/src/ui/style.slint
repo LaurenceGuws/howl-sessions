@@ -1,0 +1,47 @@
+export struct Palette {
+    background: color,
+    chrome: color,
+    sidebar: color,
+    terminal: color,
+    hover: color,
+    selected: color,
+    selection-border: color,
+    border: color,
+    text: color,
+    secondary: color,
+    muted: color,
+    accent: color,
+}
+
+export struct Style {
+    palette: Palette,
+    padding: length,
+    spacing: length,
+    stroke: length,
+    radius: length,
+    emphasis: int,
+}
+
+export global Theme {
+    out property <Style> defaults: {
+        palette: {
+            background: #131619,
+            chrome: #1b1f23,
+            sidebar: #181c20,
+            terminal: #111416,
+            hover: #23292e,
+            selected: #25332e,
+            selection-border: #394b42,
+            border: #2a3035,
+            text: #dbe2e6,
+            secondary: #a4adb5,
+            muted: #78848e,
+            accent: #8eb6a0,
+        },
+        padding: 6px,
+        spacing: 2px,
+        stroke: 1px,
+        radius: 4px,
+        emphasis: 600,
+    };
+}
