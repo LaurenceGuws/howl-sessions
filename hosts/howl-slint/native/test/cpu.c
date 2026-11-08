@@ -42,8 +42,44 @@ static int blend_equivalence(void) {
     }
     return 0;
 }
+static int mask_one_to_one(void) {
+    uint8_t pixels[48], expected[48], atlas[24];
+    for (unsigned i = 0; i < sizeof atlas; i++) atlas[i] = (uint8_t)(i * 37);
+    struct cpu_surface surface = {.pixels = pixels};
+    hrc_frame_info info = {.surface_width = 4, .surface_height = 3,
+        .background_rgba = 0xffa35127, .command_count = 1, .upload_count = 1};
+    hrc_upload u = {.pixels = atlas, .pixel_len = sizeof atlas};
+    u.info.resource = u.info.generation = 1;
+    u.info.width = 5; u.info.height = 4; u.info.stride = 6;
+    u.info.format = HRC_ALPHA8;
+    hrc_command c = {.tag = HRC_ALPHA_MASK, .resource = 1, .generation = 1,
+        .source_x = 1, .source_y = 1, .source_width = 4, .source_height = 3,
+        .destination_x = -1, .destination_y = -1,
+        .destination_width = 4, .destination_height = 3,
+        .clip_x = 1, .clip_width = 3, .clip_height = 3};
+    for (unsigned alpha = 0; alpha < 256; alpha++) {
+        c.color_rgba = alpha << 24 | 0x39a7ed;
+        for (unsigned i = 0; i < 12; i++) {
+            expected[4*i] = 0x27; expected[4*i+1] = 0x51;
+            expected[4*i+2] = 0xa3; expected[4*i+3] = 255;
+        }
+        for (unsigned y = 0; y < 2; y++)
+            for (unsigned x = 1; x < 3; x++)
+                reference_blend(expected + (y*4+x)*4, c.color_rgba, atlas[(y+2)*6+x+2]);
+        CHECK(cpu_paint(&surface, &info, &c, &u) == 0);
+        CHECK(memcmp(pixels, expected, sizeof pixels) == 0);
+    }
+    u.pixel_len = 22; /* Last sampled byte is offset 22. */
+    CHECK(cpu_paint(&surface, &info, &c, &u) != 0);
+    u.pixel_len = sizeof atlas; u.info.width = 4;
+    CHECK(cpu_paint(&surface, &info, &c, &u) != 0);
+    u.info.width = 5; u.info.height = 3;
+    CHECK(cpu_paint(&surface, &info, &c, &u) != 0);
+    return 0;
+}
 int main(void) {
     CHECK(blend_equivalence() == 0);
+    CHECK(mask_one_to_one() == 0);
     uint8_t pixels[16] = {0};
     struct cpu_surface surface = {.pixels = pixels};
     hrc_frame_info info = {.surface_width = 2, .surface_height = 2, .background_rgba = 0xff000000, .command_count = 1};

@@ -57,8 +57,10 @@ returns to the same remote shell.
 
 ## Performance checks
 
-The development profile optimizes this host package at level 2 (including its C
-compositor), while retaining debug information and assertions. The frame worker
+The development profile uses optimization level 2 for the host and UI dependencies
+(including the C compositor), while retaining debug information and assertions.
+The first build costs more than an unoptimized dependency build; subsequent
+host edits reuse those dependencies. The frame worker
 copies the native pixel borrow once into a Slint shared pixel buffer; the UI
 moves that buffer into its image rather than allocating/copying it again.
 

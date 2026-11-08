@@ -17,8 +17,7 @@ cc = "1"
 lucide-slint = "=1.70.0"
 slint-build = "=1.18.1"
 
-# Pixel conversion/compositing is real-time work even in a debug host. Keep
-# debug information and assertions; optimize this package without rebuilding
-# every UI dependency in a different profile. cc inherits this level too.
-[profile.dev.package.howl-slint]
+# Keep debug information and assertions, but optimize the whole frame path,
+# including Slint image conversion/presentation. cc inherits this level too.
+[profile.dev]
 opt-level = 2

@@ -72,6 +72,26 @@ uint32_t cpu_paint(struct cpu_surface *p, const hrc_frame_info *f,
         }
       continue;
     }
+    /* Glyph masks normally map atlas pixels 1:1. Validate the clipped span
+     * once, then advance pointers instead of dividing for every pixel.
+     * Invalid spans keep the general path's checked failure behavior. */
+    if (u && c->tag == HRC_ALPHA_MASK && u->info.format == HRC_ALPHA8 &&
+        c->source_width == c->destination_width &&
+        c->source_height == c->destination_height && x0 < x1 && y0 < y1) {
+      uint64_t sx = (uint64_t)c->source_x + (uint32_t)(x0 - c->destination_x);
+      uint64_t sy = (uint64_t)c->source_y + (uint32_t)(y0 - c->destination_y);
+      size_t width = (size_t)(x1 - x0), height = (size_t)(y1 - y0);
+      if (sx + width <= u->info.width && sy + height <= u->info.height &&
+          (sy + height - 1) * u->info.stride + sx + width <= u->pixel_len) {
+        for (size_t row = 0; row < height; row++) {
+          const uint8_t *source = u->pixels + (sy + row) * u->info.stride + sx;
+          uint8_t *destination = p->pixels + (((size_t)y0 + row) * p->width + x0) * 4;
+          for (size_t column = 0; column < width; column++)
+            blend(destination + column * 4, c->color_rgba, source[column]);
+        }
+        continue;
+      }
+    }
     for (int y = y0; y < y1; y++)
       for (int x = x0; x < x1; x++) {
         uint32_t color = c->color_rgba;

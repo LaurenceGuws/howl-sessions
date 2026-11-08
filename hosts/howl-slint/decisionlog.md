@@ -171,3 +171,18 @@ native/foreign tests and extracted-package checks before release.
 
 Keep exact run logs and screenshots in the active workstream, not this decision
 log. Passing tests do not turn provisional architecture into an accepted design.
+
+### Active-frame cost
+
+Optimize the development frame path, not only host code: Slint/Skia image
+conversion runs on each changed frame too. Keep debug assertions and symbols.
+On Note10, paired 8-second Rain samples put the UI thread at 1.45–1.62 seconds
+of CPU with optimized dependencies versus 1.92–2.16 without; observer cost
+stayed around 1.2–1.3 seconds. These are CPU samples, not displayed FPS.
+A checked 1:1 alpha-mask row path also reduced native dense-Cells CPU about
+16% in repeated Home runs, with no meaningful Rain improvement.
+
+No ABI change is justified by these results. Full CPU composition and image
+upload remain. The Android terminal currently rasterizes at logical resolution
+then scales on the GPU; physical-resolution font fidelity remains separate work,
+not a speed claim.
