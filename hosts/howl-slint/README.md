@@ -27,8 +27,11 @@ TCP protocol does not add TLS or authentication. A Server incarnation ID prevent
 stale identity reuse; it is not authentication. Do not expose an unauthenticated
 Server to an untrusted network.
 
-One cancellable worker owns a connection and renderer. Input is bounded; frame
-and resize mailboxes keep the newest value. Mobile owns no local PTY. Android
+The command owner handles input and geometry on one attachment; the observer
+owns a separate attachment and renderer, sleeping until the Server changes.
+Only the command attachment acquires resize leadership. Input is bounded; frame
+and resize mailboxes keep the newest value. Coalesced events wake the UI without
+a polling timer. Mobile owns no local PTY. Android
 Pause/Stop/Destroy requests detach rather than running an invisible terminal
 service; resuming requires an explicit connection and selection. Device lifecycle
 was exercised on Note10: Home/background detaches; explicit reconnect and selection

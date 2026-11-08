@@ -7,7 +7,10 @@ Transitive owners pin VT/Text/Render themselves. No local Instance or PTY is
 linked into this host, and no sibling checkout is an implicit dependency.
 
 Rust owns connection scheduling, input, UI mailboxes and cancellation.
-`remote.c` owns Client/Render handles and the CPU pixel surface. `cpu.c` consumes
+`remote.c` keeps an observer (Client/Render and CPU surface) separate from its
+action attachment. Each has one owner and an independent interrupt. Observation
+blocks on the last delivery revision; action calls remain available while it
+waits. Only actions acquire geometry leadership. `cpu.c` consumes
 canonical Render commands; Howl still owns terminal semantics and text shaping.
 A frame is painted while its lease is live, released, then pixels are borrowed
 until the next call. Rust copies them before another native call. Disconnect
@@ -32,16 +35,10 @@ zig build test-live -Doptimize=ReleaseSafe -- \
 `test-cpu` exercises clipping, alpha/RGBA, malformed resources and bounds.
 `test` forwards the published Client Render package's tests.
 `test-live` creates and cleans up its own disposable Session on the given Server.
-It tests input, geometry, four-face capture, cancellation, re-attachment and the
-actual host adapter. Only run against a Server authorized for that temporary
+It tests parked observation, input wakeup, geometry, four-face capture, independent
+cancellation, re-attachment and the actual host adapter. Only run against a Server authorized for that temporary
 work. The four slots use one fixture font; style differentiation belongs to
 Render's tests. `build-live` installs that executable for device tests.
-
-Append `--benchmark` after `ENDPOINT FONT_PATH` for 200 idle and 200 input/frame
-iterations through the actual adapter at a requested 1600×900 viewport. It reports
-actual frame dimensions, elapsed time and client-process CPU time. Font setup,
-Rust copies, UI upload and pacing are excluded; this is a native-path measurement,
-not a whole-app frame-rate or input-latency claim.
 
 Android builds use `-Dtarget=aarch64-linux-android.28 -Dbundled_text=true --libc
 /path/to/ndk-libc.txt`. The ARM64 native integration test has passed on Note10
@@ -62,6 +59,6 @@ and samples the complete native adapter until child exit (15-second bound).
 For example, use the installed `tui-zoo rain --fps 30 --duration-ms 4000 --seed 7
 --cols 128 --rows 40 --synchronized-output`, or `cells` with `--dose 64`.
 Redirect the workload's stderr to a chosen workstream receipt file to preserve
-producer metrics separately. Samples include repeated observations of the same
-producer frame; their count is not displayed FPS. The harness does not exercise
+producer metrics separately. Samples follow Server delivery changes, which can
+include non-content metadata changes; their count is not displayed FPS. The harness does not exercise
 Slint upload, UI pacing or presentation and does not alter other Sessions.

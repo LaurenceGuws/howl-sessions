@@ -1,21 +1,20 @@
-//! One explicit Server connection. Server keeps the PTY; this host owns only
-//! cancellable client I/O, rendering and UI copies. No implicit reconnect/create.
+//! Server owns the PTY. One command owner services input/geometry; one observer
+//! blocks for snapshots and renders. Both sleep on work, never a polling timer.
 use crate::{
     App,
     input::{Key, key, resolve_font},
 };
-use slint::{ComponentHandle, Model, Rgba8Pixel, SharedPixelBuffer, Timer, TimerMode};
-use std::sync::atomic::{AtomicBool, Ordering};
+use slint::{ComponentHandle, Model, Rgba8Pixel, SharedPixelBuffer};
 use std::{
     cell::RefCell,
     ffi::{CString, c_char, c_void},
     rc::Rc,
     sync::{
         Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, SyncSender},
     },
     thread::{self, JoinHandle},
-    time::Duration,
 };
 
 unsafe extern "C" {
@@ -44,8 +43,7 @@ unsafe extern "C" {
         fallback_count: usize,
         pixel_size: u16,
     ) -> u32;
-    fn remote_key(client: *mut c_void, key: u8, scalar: u32, action: u8, mods: u8) -> u32;
-    fn remote_resize(client: *mut c_void, width: u32, height: u32) -> u32;
+    fn remote_cell_size(client: *mut c_void, width: *mut u16, height: *mut u16) -> u32;
     fn remote_step(
         client: *mut c_void,
         pixels: *mut *const u8,
@@ -54,10 +52,27 @@ unsafe extern "C" {
         exited: *mut i32,
     ) -> u32;
     fn remote_close(client: *mut c_void) -> u32;
+    fn remote_actions_open(
+        endpoint: *const c_char,
+        interrupt: *mut c_void,
+        server: u64,
+        session: u64,
+        instance: u64,
+        out: *mut *mut c_void,
+    ) -> u32;
+    fn remote_actions_close(actions: *mut c_void);
+    fn remote_actions_key(actions: *mut c_void, key: u8, scalar: u32, action: u8, mods: u8) -> u32;
+    fn remote_actions_resize(
+        actions: *mut c_void,
+        width: u32,
+        height: u32,
+        cell_width: u16,
+        cell_height: u16,
+    ) -> u32;
 }
 
-// This is the one native object allowed across threads: the published Client
-// contract explicitly permits cancel concurrently with its borrowing calls.
+// The Client ABI expressly allows cancellation concurrently with borrowing I/O.
+// All other native handles stay on their constructing/owning thread.
 struct Interrupt(*mut c_void);
 unsafe impl Send for Interrupt {}
 unsafe impl Sync for Interrupt {}
@@ -90,6 +105,14 @@ impl Drop for Client {
         }
     }
 }
+struct Actions(*mut c_void);
+impl Drop for Actions {
+    fn drop(&mut self) {
+        unsafe {
+            remote_actions_close(self.0);
+        }
+    }
+}
 #[derive(Clone)]
 struct Entry {
     name: String,
@@ -97,48 +120,197 @@ struct Entry {
     session: u64,
     instance: u64,
 }
-#[derive(Default)]
-struct Mailbox {
-    frame: Option<SharedPixelBuffer<Rgba8Pixel>>,
-    size: Option<(u32, u32)>,
-    catalog: Option<Vec<Entry>>,
-    selected: Option<(usize, String)>,
-    status: Option<String>,
-    finished: bool,
-}
-enum Command {
-    Select(usize),
-    Key(Key),
-}
+#[derive(Clone)]
 struct Fonts {
     patterns: [String; 4],
     fallbacks: Vec<String>,
     size: u16,
 }
-struct Connection {
-    interrupt: Arc<Interrupt>,
-    stopping: Arc<AtomicBool>,
-    sender: SyncSender<Command>,
-    worker: Option<JoinHandle<()>>,
-    shared: Arc<Mutex<Mailbox>>,
+
+#[derive(Default)]
+struct Update {
+    frame: Option<SharedPixelBuffer<Rgba8Pixel>>,
+    catalog: Option<Vec<Entry>>,
+    selected: Option<(usize, String)>,
+    status: Option<String>,
+    clear_frame: bool,
+    finished: bool,
 }
-impl Drop for Connection {
-    fn drop(&mut self) {
-        self.stopping.store(true, Ordering::Relaxed);
-        self.interrupt.cancel();
-        // Cancel wakes Client I/O. All handles/borrows are released by that owner
-        // before the interrupt can be destroyed or another connection replaces it.
-        if let Some(worker) = self.worker.take()
-            && worker.join().is_err()
-        {
-            eprintln!("Server worker panicked");
-        }
+impl Update {
+    fn select(&mut self, index: usize, name: String) {
+        self.frame = None;
+        self.clear_frame = true;
+        self.selected = Some((index, name));
+        self.status = Some("Attaching…".into());
     }
 }
 
+#[derive(Default)]
+struct Mailbox {
+    update: Update,
+    queued: bool,
+}
+impl Mailbox {
+    fn publish(&mut self, change: impl FnOnce(&mut Update)) -> bool {
+        change(&mut self.update);
+        if self.queued {
+            false
+        } else {
+            self.queued = true;
+            true
+        }
+    }
+    fn take(&mut self, active: bool) -> Option<Update> {
+        self.queued = false;
+        let update = std::mem::take(&mut self.update);
+        active.then_some(update)
+    }
+}
+
+#[derive(Clone)]
+struct View {
+    app: slint::Weak<App>,
+    mailbox: Arc<Mutex<Mailbox>>,
+    active: Arc<AtomicBool>,
+}
+impl View {
+    fn publish(&self, change: impl FnOnce(&mut Update)) {
+        if !self.active.load(Ordering::Acquire) {
+            return;
+        }
+        let schedule = self.mailbox.lock().unwrap().publish(change);
+        if !schedule {
+            return;
+        }
+        let mailbox = self.mailbox.clone();
+        let active = self.active.clone();
+        // At most one pending callback. The latest owned frame replaces older
+        // unpublished frames, not a growing event queue of images.
+        if self
+            .app
+            .upgrade_in_event_loop(move |app| {
+                let update = { mailbox.lock().unwrap().take(active.load(Ordering::Acquire)) };
+                if let Some(update) = update {
+                    apply_update(&app, update);
+                }
+            })
+            .is_err()
+        {
+            self.active.store(false, Ordering::Release);
+        }
+    }
+}
+fn apply_update(app: &App, update: Update) {
+    if let Some(catalog) = update.catalog {
+        app.set_sessions(slint::ModelRc::new(slint::VecModel::from(
+            catalog
+                .iter()
+                .map(|e| slint::SharedString::from(&e.name))
+                .collect::<Vec<_>>(),
+        )));
+        app.set_server_connecting(false);
+        app.set_server_connected(true);
+        app.set_connection_detail("Server connection".into());
+    }
+    if update.clear_frame {
+        app.set_terminal_frame(slint::Image::default());
+    }
+    if let Some((index, title)) = update.selected {
+        app.set_selected_index(index as i32);
+        app.set_selected_title(title.into());
+        app.set_terminal_enabled(true);
+    }
+    if let Some(frame) = update.frame {
+        app.set_terminal_frame(slint::Image::from_rgba8(frame));
+    }
+    if let Some(status) = update.status {
+        app.set_terminal_status(status.into());
+    }
+    if update.finished {
+        app.set_server_connecting(false);
+        app.set_server_connected(false);
+        app.set_terminal_enabled(false);
+        app.set_selected_index(-1);
+        app.set_sessions(slint::ModelRc::new(slint::VecModel::from(Vec::<
+            slint::SharedString,
+        >::new())));
+        app.set_connection_detail("Disconnected".into());
+    }
+}
+
+// Resize and Ready are coalesced facts. Wake is only a notification: if the
+// bounded command queue is full, its receiver is already guaranteed work.
+#[derive(Default)]
+struct Pending {
+    size: Option<(u32, u32)>,
+    ready: Option<(u16, u16)>,
+    ended: Option<Result<(), String>>,
+}
+enum Command {
+    Select(usize),
+    Key(Key),
+    Wake,
+    Stop,
+}
+struct Cancellation {
+    stopping: AtomicBool,
+    commands: Arc<Interrupt>,
+    observer: Mutex<Option<Arc<Interrupt>>>,
+}
+impl Cancellation {
+    fn stop(&self) {
+        self.stopping.store(true, Ordering::Release);
+        self.commands.cancel();
+        if let Some(observer) = self.observer.lock().unwrap().as_ref() {
+            observer.cancel();
+        }
+    }
+    fn install_observer(&self, interrupt: Arc<Interrupt>) -> Result<(), String> {
+        let mut observer = self.observer.lock().unwrap();
+        if self.stopping.load(Ordering::Acquire) {
+            return Err("Connection cancelled".into());
+        }
+        *observer = Some(interrupt);
+        Ok(())
+    }
+}
+struct Observer {
+    interrupt: Arc<Interrupt>,
+    worker: Option<JoinHandle<()>>,
+}
+impl Drop for Observer {
+    fn drop(&mut self) {
+        self.interrupt.cancel();
+        if let Some(worker) = self.worker.take()
+            && worker.join().is_err()
+        {
+            eprintln!("Server observer panicked");
+        }
+    }
+}
+struct Connection {
+    cancellation: Arc<Cancellation>,
+    sender: SyncSender<Command>,
+    worker: Option<JoinHandle<()>>,
+    pending: Arc<Mutex<Pending>>,
+    view: View,
+}
+impl Drop for Connection {
+    fn drop(&mut self) {
+        self.view.active.store(false, Ordering::Release);
+        self.cancellation.stop();
+        let _ = self.sender.try_send(Command::Stop);
+        // Cancel both native I/O lanes before joining the command owner, which
+        // cancels/joins its observer. No owner can be stuck sending Ready.
+        if let Some(worker) = self.worker.take()
+            && worker.join().is_err()
+        {
+            eprintln!("Server command owner panicked");
+        }
+    }
+}
 pub struct Sessions {
     connection: Rc<RefCell<Option<Connection>>>,
-    _timer: Timer,
 }
 impl Drop for Sessions {
     fn drop(&mut self) {
@@ -155,10 +327,12 @@ impl Sessions {
         if let Ok(endpoint) = std::env::var("HOWL_SERVER") {
             app.set_server_endpoint(endpoint.into());
         }
-        let weak = app.as_weak();
         let slot = connection.clone();
+        let weak = app.as_weak();
         app.on_connect_server(move |endpoint| {
-            let Some(app) = weak.upgrade() else { return };
+            let Some(app) = weak.upgrade() else {
+                return;
+            };
             slot.borrow_mut().take();
             reset_view(&app);
             let endpoint = match CString::new(endpoint.trim()) {
@@ -175,7 +349,7 @@ impl Sessions {
                 }
             };
             let interrupt = match Interrupt::new() {
-                Ok(interrupt) => Arc::new(interrupt),
+                Ok(value) => Arc::new(value),
                 Err(error) => {
                     app.set_terminal_status(error.into());
                     return;
@@ -197,23 +371,33 @@ impl Sessions {
                     .collect(),
                 size: style.terminal_font_size.round().clamp(1.0, u16::MAX as f32) as u16,
             };
-            let shared = Arc::new(Mutex::new(Mailbox::default()));
-            let (sender, receiver) = mpsc::sync_channel(64);
-            let stopping = Arc::new(AtomicBool::new(false));
-            let worker_stop = stopping.clone();
-            let owner = interrupt.clone();
-            let mailbox = shared.clone();
-            let worker =
-                thread::spawn(move || run(endpoint, owner, worker_stop, receiver, mailbox, fonts));
-            *slot.borrow_mut() = Some(Connection {
-                interrupt,
-                stopping,
-                sender,
-                worker: Some(worker),
-                shared,
+            let view = View {
+                app: app.as_weak(),
+                mailbox: Arc::new(Mutex::new(Mailbox::default())),
+                active: Arc::new(AtomicBool::new(true)),
+            };
+            let pending = Arc::new(Mutex::new(Pending::default()));
+            let cancellation = Arc::new(Cancellation {
+                stopping: AtomicBool::new(false),
+                commands: interrupt,
+                observer: Mutex::new(None),
             });
+            let (sender, receiver) = mpsc::sync_channel(64);
+            let owner = cancellation.clone();
+            let updates = view.clone();
+            let facts = pending.clone();
+            let wake = sender.clone();
             app.set_server_connecting(true);
             app.set_terminal_status("Connecting…".into());
+            let worker =
+                thread::spawn(move || run(endpoint, owner, receiver, wake, facts, updates, fonts));
+            *slot.borrow_mut() = Some(Connection {
+                cancellation,
+                sender,
+                worker: Some(worker),
+                pending,
+                view,
+            });
         });
         let slot = connection.clone();
         let weak = app.as_weak();
@@ -241,67 +425,11 @@ impl Sessions {
         let slot = connection.clone();
         app.on_terminal_resize(move |w, h| {
             if let Some(connection) = slot.borrow().as_ref() {
-                connection.shared.lock().unwrap().size = Some((w.max(0) as u32, h.max(0) as u32));
+                connection.pending.lock().unwrap().size = Some((w.max(0) as u32, h.max(0) as u32));
+                let _ = connection.sender.try_send(Command::Wake);
             }
         });
-        let slot = connection.clone();
-        let weak = app.as_weak();
-        let timer = Timer::default();
-        timer.start(TimerMode::Repeated, Duration::from_millis(16), move || {
-            let Some(app) = weak.upgrade() else { return };
-            let connection = slot.borrow();
-            let Some(connection) = connection.as_ref() else {
-                return;
-            };
-            let (frame, catalog, selected, status, finished) = {
-                let mut mailbox = connection.shared.lock().unwrap();
-                (
-                    mailbox.frame.take(),
-                    mailbox.catalog.take(),
-                    mailbox.selected.take(),
-                    mailbox.status.take(),
-                    std::mem::take(&mut mailbox.finished),
-                )
-            };
-            if let Some(catalog) = catalog {
-                app.set_sessions(slint::ModelRc::new(slint::VecModel::from(
-                    catalog
-                        .iter()
-                        .map(|e| slint::SharedString::from(&e.name))
-                        .collect::<Vec<_>>(),
-                )));
-                app.set_server_connecting(false);
-                app.set_server_connected(true);
-                app.set_connection_detail("Server connection".into());
-            }
-            if let Some((index, title)) = selected {
-                app.set_selected_index(index as i32);
-                app.set_selected_title(title.into());
-                app.set_terminal_frame(slint::Image::default());
-                app.set_terminal_enabled(true);
-            }
-            if let Some(frame) = frame {
-                app.set_terminal_frame(slint::Image::from_rgba8(frame));
-            }
-            if let Some(status) = status {
-                app.set_terminal_status(status.into());
-            }
-            if finished {
-                app.set_server_connecting(false);
-                app.set_server_connected(false);
-                app.set_terminal_enabled(false);
-                app.set_selected_index(-1);
-                app.set_sessions(slint::ModelRc::new(slint::VecModel::from(Vec::<
-                    slint::SharedString,
-                >::new(
-                ))));
-                app.set_connection_detail("Disconnected".into());
-            }
-        });
-        Self {
-            connection,
-            _timer: timer,
-        }
+        Self { connection }
     }
 }
 fn reset_view(app: &App) {
@@ -340,52 +468,56 @@ fn check(code: u32) -> Result<(), String> {
         code => Err(format!("Server client error {code}")),
     }
 }
+fn catalog(endpoint: &CString, interrupt: &Interrupt) -> Result<Vec<Entry>, String> {
+    let mut raw = std::ptr::null_mut();
+    check(unsafe { remote_open(endpoint.as_ptr(), interrupt.0, &mut raw) })?;
+    let client = Client(raw);
+    let count = unsafe { remote_count(client.0) };
+    if count > 256 {
+        return Err("Server catalog exceeds this host's 256-instance limit".into());
+    }
+    let mut entries = Vec::with_capacity(count);
+    for index in 0..count {
+        let mut name = [0u8; 256];
+        let (mut length, mut server, mut session, mut instance) = (0, 0, 0, 0);
+        check(unsafe {
+            remote_item(
+                client.0,
+                index,
+                name.as_mut_ptr().cast(),
+                name.len(),
+                &mut length,
+                &mut server,
+                &mut session,
+                &mut instance,
+            )
+        })?;
+        if length > name.len() {
+            return Err("Invalid Server catalog label".into());
+        }
+        entries.push(Entry {
+            name: format!("{} · {instance}", String::from_utf8_lossy(&name[..length])),
+            server,
+            session,
+            instance,
+        });
+    }
+    Ok(entries)
+}
 fn run(
     endpoint: CString,
-    interrupt: Arc<Interrupt>,
-    stopping: Arc<AtomicBool>,
+    cancellation: Arc<Cancellation>,
     receiver: Receiver<Command>,
-    shared: Arc<Mutex<Mailbox>>,
+    sender: SyncSender<Command>,
+    pending: Arc<Mutex<Pending>>,
+    view: View,
     fonts: Fonts,
 ) {
     let result = (|| -> Result<(), String> {
-        let mut raw = std::ptr::null_mut();
-        check(unsafe { remote_open(endpoint.as_ptr(), interrupt.0, &mut raw) })?;
-        let client = Client(raw);
-        let count = unsafe { remote_count(client.0) };
-        if count > 256 {
-            return Err("Server catalog exceeds this host's 256-instance limit".into());
-        }
-        let mut entries = Vec::with_capacity(count);
-        for index in 0..count {
-            let mut name = [0u8; 256];
-            let (mut length, mut server, mut session, mut instance) = (0, 0, 0, 0);
-            check(unsafe {
-                remote_item(
-                    client.0,
-                    index,
-                    name.as_mut_ptr().cast(),
-                    name.len(),
-                    &mut length,
-                    &mut server,
-                    &mut session,
-                    &mut instance,
-                )
-            })?;
-            if length > name.len() {
-                return Err("Invalid Server catalog label".into());
-            }
-            entries.push(Entry {
-                name: format!("{} · {instance}", String::from_utf8_lossy(&name[..length])),
-                server,
-                session,
-                instance,
-            });
-        }
-        {
-            let mut mailbox = shared.lock().unwrap();
-            mailbox.catalog = Some(entries.clone());
-            mailbox.status = Some(
+        let entries = catalog(&endpoint, &cancellation.commands)?;
+        view.publish(|update| {
+            update.catalog = Some(entries.clone());
+            update.status = Some(
                 if entries.is_empty() {
                     "Server has no terminal instances"
                 } else {
@@ -393,96 +525,183 @@ fn run(
                 }
                 .into(),
             );
-        }
-        let mut attached = false;
+        });
+        let mut observer = None::<Observer>;
+        let mut actions = None::<Actions>;
         let mut last_size = None;
-        let mut resize_pending = false;
-        while !stopping.load(Ordering::Relaxed) {
-            let first = match receiver.recv_timeout(Duration::from_millis(16)) {
-                Ok(command) => Some(command),
-                Err(mpsc::RecvTimeoutError::Timeout) => None,
-                Err(mpsc::RecvTimeoutError::Disconnected) => break,
-            };
-            for command in first.into_iter().chain(receiver.try_iter()).take(64) {
-                match command {
-                    Command::Select(index) => {
-                        let Some(entry) = entries.get(index) else {
-                            continue;
-                        };
-                        let variables = [
-                            "HOWL_FONT",
-                            "HOWL_ITALIC_FONT",
-                            "HOWL_BOLD_FONT",
-                            "HOWL_BOLD_ITALIC_FONT",
-                        ];
-                        let resolved = fonts
-                            .patterns
-                            .iter()
-                            .zip(variables)
-                            .map(|(pattern, variable)| {
-                                let pattern =
-                                    std::env::var(variable).unwrap_or_else(|_| pattern.clone());
-                                if pattern.is_empty() {
-                                    Ok(None)
-                                } else {
-                                    resolve_font(&pattern).map(Some)
-                                }
-                            })
-                            .collect::<Result<Vec<_>, String>>()?;
-                        if resolved[0].is_none() {
-                            return Err("A regular terminal font is required".into());
-                        }
-                        if fonts.fallbacks.len() > 24 {
-                            return Err("At most 24 fallback fonts are supported".into());
-                        }
-                        let fallbacks = fonts
-                            .fallbacks
-                            .iter()
-                            .map(|v| resolve_font(v))
-                            .collect::<Result<Vec<_>, _>>()?;
-                        let faces: Vec<_> = resolved
-                            .iter()
-                            .map(|v| v.as_ref().map_or(std::ptr::null(), |v| v.as_ptr()))
-                            .collect();
-                        let fallback_ptrs: Vec<_> = fallbacks.iter().map(|v| v.as_ptr()).collect();
+        let mut cell = None;
+        while let Ok(command) = receiver.recv() {
+            if cancellation.stopping.load(Ordering::Acquire) {
+                break;
+            }
+            match command {
+                Command::Stop => break,
+                Command::Select(index) if index < entries.len() => {
+                    let entry = &entries[index];
+                    // Join before clearing pending updates. Nothing from the old
+                    // selection can repopulate this mailbox after this point.
+                    observer.take();
+                    actions.take();
+                    cancellation.observer.lock().unwrap().take();
+                    {
+                        let mut facts = pending.lock().unwrap();
+                        facts.ready = None;
+                        facts.ended = None;
+                    }
+                    cell = None;
+                    view.publish(|update| update.select(index, entry.name.clone()));
+                    let mut raw = std::ptr::null_mut();
+                    check(unsafe {
+                        remote_actions_open(
+                            endpoint.as_ptr(),
+                            cancellation.commands.0,
+                            entry.server,
+                            entry.session,
+                            entry.instance,
+                            &mut raw,
+                        )
+                    })?;
+                    actions = Some(Actions(raw));
+                    let interrupt = Arc::new(Interrupt::new()?);
+                    cancellation.install_observer(interrupt.clone())?;
+                    let owner = interrupt.clone();
+                    let target = entry.clone();
+                    let address = endpoint.clone();
+                    let fonts = fonts.clone();
+                    let facts = pending.clone();
+                    let wake = sender.clone();
+                    let updates = view.clone();
+                    let worker = thread::spawn(move || {
+                        observe(address, target, owner, fonts, facts, wake, updates)
+                    });
+                    observer = Some(Observer {
+                        interrupt,
+                        worker: Some(worker),
+                    });
+                }
+                Command::Key(key) => {
+                    if let Some(actions) = actions.as_ref() {
                         check(unsafe {
-                            remote_attach(
-                                client.0,
-                                entry.server,
-                                entry.session,
-                                entry.instance,
-                                faces.as_ptr(),
-                                fallback_ptrs.as_ptr(),
-                                fallback_ptrs.len(),
-                                fonts.size,
+                            remote_actions_key(
+                                actions.0,
+                                key.named,
+                                key.scalar,
+                                key.action,
+                                key.modifiers,
                             )
                         })?;
-                        attached = true;
-                        resize_pending = true;
-                        let mut mailbox = shared.lock().unwrap();
-                        mailbox.selected = Some((index, entry.name.clone()));
-                        mailbox.status = Some("Connected".into());
                     }
-                    Command::Key(key) if attached => {
-                        check(unsafe {
-                            remote_key(client.0, key.named, key.scalar, key.action, key.modifiers)
-                        })?;
-                    }
-                    _ => {}
                 }
+                Command::Wake | Command::Select(_) => {}
             }
-            // The stop flag covers idle catalogs; Interrupt covers blocked I/O.
-            if !attached {
-                continue;
-            }
-            if let Some(size) = shared.lock().unwrap().size.take() {
+            let (size, ready, ended) = {
+                let mut facts = pending.lock().unwrap();
+                (facts.size.take(), facts.ready.take(), facts.ended.take())
+            };
+            let resized = size.is_some() || ready.is_some();
+            if let Some(size) = size {
                 last_size = Some(size);
-                resize_pending = true;
             }
-            if resize_pending && let Some((w, h)) = last_size {
-                check(unsafe { remote_resize(client.0, w, h) })?;
-                resize_pending = false;
+            if let Some(ready) = ready {
+                cell = Some(ready);
+                view.publish(|update| update.status = Some("Connected".into()));
             }
+            if let Some(result) = ended {
+                observer.take();
+                actions.take();
+                cancellation.observer.lock().unwrap().take();
+                cell = None;
+                view.publish(|update| {
+                    update.status =
+                        Some(result.err().unwrap_or_else(|| "Remote shell exited".into()))
+                });
+            } else if resized
+                && let (Some(actions), Some((width, height)), Some((cell_width, cell_height))) =
+                    (actions.as_ref(), last_size, cell)
+            {
+                check(unsafe {
+                    remote_actions_resize(actions.0, width, height, cell_width, cell_height)
+                })?;
+            }
+        }
+        Ok(())
+    })();
+    // Any Observer local has now cancelled/joined, and native action/catalog
+    // handles have been released. Clearing registration cannot race their use.
+    cancellation.observer.lock().unwrap().take();
+    view.publish(|update| {
+        if let Err(error) = result {
+            update.status = Some(error);
+        }
+        update.finished = true;
+    });
+}
+fn observe(
+    endpoint: CString,
+    entry: Entry,
+    interrupt: Arc<Interrupt>,
+    fonts: Fonts,
+    pending: Arc<Mutex<Pending>>,
+    sender: SyncSender<Command>,
+    view: View,
+) {
+    let result = (|| -> Result<(), String> {
+        let variables = [
+            "HOWL_FONT",
+            "HOWL_ITALIC_FONT",
+            "HOWL_BOLD_FONT",
+            "HOWL_BOLD_ITALIC_FONT",
+        ];
+        let resolved = fonts
+            .patterns
+            .iter()
+            .zip(variables)
+            .map(|(pattern, variable)| {
+                let pattern = std::env::var(variable).unwrap_or_else(|_| pattern.clone());
+                if pattern.is_empty() {
+                    Ok(None)
+                } else {
+                    resolve_font(&pattern).map(Some)
+                }
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        if resolved[0].is_none() {
+            return Err("A regular terminal font is required".into());
+        }
+        if fonts.fallbacks.len() > 24 {
+            return Err("At most 24 fallback fonts are supported".into());
+        }
+        let fallbacks = fonts
+            .fallbacks
+            .iter()
+            .map(|v| resolve_font(v))
+            .collect::<Result<Vec<_>, _>>()?;
+        let faces: Vec<_> = resolved
+            .iter()
+            .map(|v| v.as_ref().map_or(std::ptr::null(), |v| v.as_ptr()))
+            .collect();
+        let fallback_ptrs: Vec<_> = fallbacks.iter().map(|v| v.as_ptr()).collect();
+        let mut raw = std::ptr::null_mut();
+        check(unsafe { remote_open(endpoint.as_ptr(), interrupt.0, &mut raw) })?;
+        let client = Client(raw);
+        check(unsafe {
+            remote_attach(
+                client.0,
+                entry.server,
+                entry.session,
+                entry.instance,
+                faces.as_ptr(),
+                fallback_ptrs.as_ptr(),
+                fallback_ptrs.len(),
+                fonts.size,
+            )
+        })?;
+        let (mut cell_width, mut cell_height) = (0, 0);
+        check(unsafe { remote_cell_size(client.0, &mut cell_width, &mut cell_height) })?;
+        pending.lock().unwrap().ready = Some((cell_width, cell_height));
+        let _ = sender.try_send(Command::Wake);
+        let mut previous = None;
+        loop {
             let (mut pixels, mut width, mut height, mut exited) = (std::ptr::null(), 0, 0, 0);
             check(unsafe {
                 remote_step(client.0, &mut pixels, &mut width, &mut height, &mut exited)
@@ -494,29 +713,120 @@ fn run(
                 let pixels = unsafe {
                     std::slice::from_raw_parts(pixels, width as usize * height as usize * 4)
                 };
-                // Copy the native borrow once, on its owning worker. The UI moves
-                // this shared pixel buffer into Image without another full copy.
-                shared.lock().unwrap().frame =
-                    Some(SharedPixelBuffer::clone_from_slice(pixels, width, height));
+                if let Some(frame) = changed_frame(&mut previous, pixels, width, height) {
+                    view.publish(|update| update.frame = Some(frame));
+                }
             }
             if exited != 0 {
-                // Retain its final frame without polling a dead shell forever.
-                attached = false;
-                shared.lock().unwrap().status = Some("Remote shell exited".into());
+                break;
             }
         }
         Ok(())
     })();
-    let mut mailbox = shared.lock().unwrap();
-    if let Err(error) = result {
-        mailbox.status = Some(error);
+    pending.lock().unwrap().ended = Some(result);
+    let _ = sender.try_send(Command::Wake);
+}
+// Compare rendered pixels, not terminal revisions: cursor animation can change
+// without new PTY output. The retained buffer shares ownership with Slint; it is
+// never mutated, and a new native borrow is copied only when its image differs.
+fn changed_frame(
+    previous: &mut Option<SharedPixelBuffer<Rgba8Pixel>>,
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+) -> Option<SharedPixelBuffer<Rgba8Pixel>> {
+    if previous.as_ref().is_some_and(|frame| {
+        frame.width() == width && frame.height() == height && frame.as_bytes() == pixels
+    }) {
+        return None;
     }
-    mailbox.finished = true;
+    let frame = SharedPixelBuffer::clone_from_slice(pixels, width, height);
+    *previous = Some(frame.clone());
+    Some(frame)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn publications_coalesce_and_rearm_without_losing_work() {
+        let mut mailbox = Mailbox::default();
+        assert!(mailbox.publish(|update| update.status = Some("first".into())));
+        assert!(!mailbox.publish(|update| update.status = Some("latest".into())));
+        assert!(!mailbox.publish(|update| update.frame = Some(SharedPixelBuffer::new(2, 2))));
+        let update = mailbox.take(true).unwrap();
+        assert_eq!(update.status.as_deref(), Some("latest"));
+        assert!(update.frame.is_some());
+        // A producer racing after event extraction schedules the next event.
+        assert!(mailbox.publish(|update| update.status = Some("next".into())));
+        assert_eq!(mailbox.take(true).unwrap().status.as_deref(), Some("next"));
+    }
+
+    #[test]
+    fn disconnected_view_discards_already_queued_updates() {
+        let mut mailbox = Mailbox::default();
+        assert!(mailbox.publish(|update| {
+            update.frame = Some(SharedPixelBuffer::new(2, 2));
+            update.selected = Some((0, "old session".into()));
+        }));
+        assert!(mailbox.take(false).is_none());
+        assert!(!mailbox.queued);
+        assert!(mailbox.update.frame.is_none());
+        assert!(mailbox.update.selected.is_none());
+    }
+
+    #[test]
+    fn selection_clears_old_unpublished_frame_before_new_owner_starts() {
+        let mut mailbox = Mailbox::default();
+        assert!(mailbox.publish(|update| update.frame = Some(SharedPixelBuffer::new(2, 2))));
+        // Production calls select only after cancelling/joining the old producer.
+        assert!(!mailbox.publish(|update| update.select(1, "new session".into())));
+        let update = mailbox.take(true).unwrap();
+        assert!(update.frame.is_none());
+        assert!(update.clear_frame);
+        assert_eq!(update.selected, Some((1, "new session".into())));
+    }
+
+    #[test]
+    fn full_command_queue_still_delivers_latest_resize_and_ready() {
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let mut pending = Pending::default();
+        sender.try_send(Command::Wake).unwrap();
+        pending.size = Some((640, 400));
+        assert!(matches!(
+            sender.try_send(Command::Wake),
+            Err(mpsc::TrySendError::Full(_))
+        ));
+        pending.size = Some((800, 600));
+        pending.ready = Some((9, 18));
+        assert!(matches!(
+            sender.try_send(Command::Wake),
+            Err(mpsc::TrySendError::Full(_))
+        ));
+        assert!(matches!(receiver.recv().unwrap(), Command::Wake));
+        assert_eq!(pending.size.take(), Some((800, 600)));
+        assert_eq!(pending.ready.take(), Some((9, 18)));
+        // A publication after the receiver consumed its facts supplies a new wake.
+        pending.size = Some((900, 700));
+        sender.try_send(Command::Wake).unwrap();
+        assert!(matches!(receiver.recv().unwrap(), Command::Wake));
+        assert_eq!(pending.size.take(), Some((900, 700)));
+    }
+
+    #[test]
+    fn unchanged_frames_are_not_resubmitted() {
+        let mut previous = None;
+        let mut pixels = vec![23u8; 4 * 8 * 6];
+        let displayed = changed_frame(&mut previous, &pixels, 8, 6).unwrap();
+        assert!(changed_frame(&mut previous, &pixels, 8, 6).is_none());
+        pixels[0] = 42; // Includes cursor-only changes.
+        assert!(changed_frame(&mut previous, &pixels, 8, 6).is_some());
+        assert_eq!(displayed.as_bytes()[0], 23); // Old UI image is immutable.
+        assert!(changed_frame(&mut previous, &pixels, 6, 8).is_some());
+        previous = None; // Selecting another session must present its first frame.
+        assert!(changed_frame(&mut previous, &pixels, 6, 8).is_some());
+    }
 
     #[test]
     fn frame_handoff_owns_pixels_across_threads() {

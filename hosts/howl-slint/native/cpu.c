@@ -5,6 +5,12 @@
  */
 static void blend(uint8_t *d, uint32_t rgba, unsigned coverage) {
   unsigned a = (rgba >> 24) * coverage / 255u;
+  if (a == 0) return; /* The surface is already opaque. */
+  if (a == 255) {
+    for (unsigned n = 0; n < 3; n++)
+      d[n] = (uint8_t)(rgba >> (8 * n));
+    return;
+  }
   for (unsigned n = 0; n < 3; n++)
     d[n] = (uint8_t)((((rgba >> (8 * n)) & 255u) * a + d[n] * (255 - a) + 127) /
                      255);
@@ -51,6 +57,21 @@ uint32_t cpu_paint(struct cpu_surface *p, const hrc_frame_info *f,
       x1 = p->width;
     if (y1 > (int)p->height)
       y1 = p->height;
+    /* Solid backgrounds dominate terminal area. Resolve alpha once, not
+     * once per pixel. Keep resource validation on the textured path below. */
+    if (c->tag == HRC_SOLID && (c->color_rgba >> 24) == 0)
+      continue;
+    if (c->tag == HRC_SOLID && (c->color_rgba >> 24) == 255) {
+      uint8_t r = (uint8_t)c->color_rgba;
+      uint8_t g = (uint8_t)(c->color_rgba >> 8);
+      uint8_t b = (uint8_t)(c->color_rgba >> 16);
+      for (int y = y0; y < y1; y++)
+        for (int x = x0; x < x1; x++) {
+          uint8_t *d = p->pixels + ((size_t)y * p->width + x) * 4;
+          d[0] = r; d[1] = g; d[2] = b; d[3] = 255;
+        }
+      continue;
+    }
     for (int y = y0; y < y1; y++)
       for (int x = x0; x < x1; x++) {
         uint32_t color = c->color_rgba;

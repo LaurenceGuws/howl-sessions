@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <pthread.h>
+#include <stdatomic.h>
 
 #define REQUIRE(ok) do { if (!(ok)) { fprintf(stderr, "failed line %d: %s\n", __LINE__, #ok); goto done; } } while (0)
 
@@ -22,8 +24,28 @@ static int contains(const hsc_snapshot *snapshot, const char *needle) {
     return 0;
 }
 
+struct observation {
+    struct remote_client *host;
+    atomic_int done;
+    uint32_t status, width, height;
+};
+static void *observe(void *data) {
+    struct observation *o = data;
+    const uint8_t *pixels = NULL; int exited = 0;
+    o->status = remote_step(o->host, &pixels, &o->width, &o->height, &exited);
+    atomic_store(&o->done, 1);
+    return NULL;
+}
+static int await_observation(struct observation *o) {
+    for (unsigned i=0; i<200; ++i) {
+        if (atomic_load(&o->done)) return 1;
+        const struct timespec pause={.tv_nsec=10000000}; nanosleep(&pause,NULL);
+    }
+    return 0;
+}
+
 int main(int argc, char **argv) {
-    if (argc != 3 && !(argc == 4 && !strcmp(argv[3], "--benchmark"))) { fprintf(stderr, "usage: sessions-live ENDPOINT FONT_PATH [--benchmark]\n"); return 2; }
+    if (argc != 3) { fprintf(stderr, "usage: sessions-live ENDPOINT FONT_PATH\n"); return 2; }
     int result = 1;
     hsc_interrupt *interrupt = NULL;
     hsc_control *control = NULL;
@@ -32,6 +54,11 @@ int main(int argc, char **argv) {
     hsr_renderer *renderer = NULL;
     hsr_frame *frame = NULL;
     struct remote_client *host = NULL;
+    struct remote_actions *actions = NULL;
+    hsc_interrupt *action_interrupt = NULL;
+    pthread_t observer;
+    int observer_started = 0;
+    struct observation observation = {0};
     uint64_t session = 0;
     hsc_identity identity = {0};
     const uint8_t *endpoint = (const uint8_t *)argv[1];
@@ -104,38 +131,77 @@ int main(int argc, char **argv) {
         REQUIRE(sid == server.server_id && length == strlen(name) && !memcmp(label, name, length));
         const char *faces[] = {argv[2], argv[2], argv[2], argv[2]};
         REQUIRE(remote_attach(host, sid, session_id, instance_id, faces, NULL, 0, 16) == HSC_OK);
-        REQUIRE(remote_resize(host, 640, 400) == HSC_OK);
+        uint16_t cw=0,ch=0;
+        REQUIRE(remote_cell_size(host,&cw,&ch)==HSC_OK);
+        REQUIRE(hsc_interrupt_create(HSC_ABI_VERSION,&action_interrupt)==HSC_OK);
+        REQUIRE(remote_actions_open(argv[1],action_interrupt,sid,session_id,instance_id,&actions)==HSC_OK);
+        REQUIRE(remote_actions_resize(actions,640,400,cw,ch)==HSC_OK);
         const uint8_t *pixels = NULL; uint32_t width = 0, height = 0; int exited = 0;
         REQUIRE(remote_step(host, &pixels, &width, &height, &exited) == HSC_OK);
         REQUIRE(pixels && width && height && width <= 640 && height <= 400 && !exited);
-        if (argc == 4) {
-            /* Same live transport/capture/compositor path as the host. The loop
-             * intentionally excludes UI upload, sleep and initial font setup. */
-            REQUIRE(remote_resize(host, 1600, 900) == HSC_OK);
-            for (unsigned mode = 0; mode < 2; mode++) {
-                struct timespec wall0, wall1, cpu0, cpu1;
-                clock_gettime(CLOCK_MONOTONIC, &wall0);
-                clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &cpu0);
-                for (unsigned n = 0; n < 200; n++) {
-                    if (mode) REQUIRE(remote_key(host, HSC_KEY_ENTER, 0, HSC_KEY_PRESS, 0) == HSC_OK);
-                    REQUIRE(remote_step(host, &pixels, &width, &height, &exited) == HSC_OK);
-                    REQUIRE(pixels && !exited);
-                }
-                clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &cpu1);
-                clock_gettime(CLOCK_MONOTONIC, &wall1);
-                double wall = (wall1.tv_sec - wall0.tv_sec) * 1e3 + (wall1.tv_nsec - wall0.tv_nsec) / 1e6;
-                double cpu = (cpu1.tv_sec - cpu0.tv_sec) * 1e3 + (cpu1.tv_nsec - cpu0.tv_nsec) / 1e6;
-                printf("SESSIONS_BENCH mode=%s frames=200 width=%u height=%u wall_ms=%.3f client_cpu_ms=%.3f\n",
-                    mode ? "input" : "idle", width, height, wall, cpu);
-            }
+        /* Drain any already-published shell output, then prove idle observation
+         * stays parked. Only the observer owner calls remote_step. */
+        int parked=0;
+        for(unsigned attempt=0;attempt<20 && !parked;attempt++) {
+            observation=(struct observation){.host=host};
+            REQUIRE(pthread_create(&observer,NULL,observe,&observation)==0);
+            observer_started=1;
+            const struct timespec pause={.tv_nsec=100000000}; nanosleep(&pause,NULL);
+            if(atomic_load(&observation.done)) {
+                REQUIRE(pthread_join(observer,NULL)==0); observer_started=0;
+                REQUIRE(observation.status==HSC_OK);
+            } else parked=1;
         }
-        REQUIRE(remote_key(host, HSC_KEY_ENTER, 0, HSC_KEY_PRESS, 0) == HSC_OK);
+        REQUIRE(parked);
+        REQUIRE(remote_actions_key(actions,HSC_KEY_ENTER,0,HSC_KEY_PRESS,0)==HSC_OK);
+        REQUIRE(await_observation(&observation));
+        REQUIRE(pthread_join(observer,NULL)==0); observer_started=0;
+        REQUIRE(observation.status==HSC_OK);
+        observation=(struct observation){.host=host};
+        REQUIRE(pthread_create(&observer,NULL,observe,&observation)==0); observer_started=1;
+        REQUIRE(remote_actions_resize(actions,720,440,cw,ch)==HSC_OK);
+        REQUIRE(await_observation(&observation));
+        REQUIRE(pthread_join(observer,NULL)==0); observer_started=0;
+        REQUIRE(observation.status==HSC_OK);
+        /* A queued input publication may precede resize. Wait for the exact new
+         * surface rather than assume response ordering across two connections. */
+        while(observation.width != (720/cw)*cw || observation.height != (440/ch)*ch) {
+            observation=(struct observation){.host=host};
+            REQUIRE(pthread_create(&observer,NULL,observe,&observation)==0); observer_started=1;
+            REQUIRE(await_observation(&observation));
+            REQUIRE(pthread_join(observer,NULL)==0); observer_started=0;
+            REQUIRE(observation.status==HSC_OK);
+        }
+        parked=0;
+        for(unsigned attempt=0;attempt<20 && !parked;attempt++) {
+            observation=(struct observation){.host=host};
+            REQUIRE(pthread_create(&observer,NULL,observe,&observation)==0); observer_started=1;
+            const struct timespec pause={.tv_nsec=100000000}; nanosleep(&pause,NULL);
+            if(atomic_load(&observation.done)) {
+                REQUIRE(pthread_join(observer,NULL)==0); observer_started=0;
+                REQUIRE(observation.status==HSC_OK);
+            } else parked=1;
+        }
+        REQUIRE(parked);
+        /* Cancel a parked observer only; the action connection remains usable. */
+        REQUIRE(hsc_interrupt_cancel(interrupt)==HSC_OK);
+        REQUIRE(await_observation(&observation));
+        REQUIRE(pthread_join(observer,NULL)==0); observer_started=0;
+        REQUIRE(observation.status==HSC_CANCELLED);
+        REQUIRE(remote_actions_key(actions,HSC_KEY_ENTER,0,HSC_KEY_PRESS,0)==HSC_OK);
+        REQUIRE(remote_actions_resize(actions,640,400,cw,ch)==HSC_OK);
         found = 1;
     }
     REQUIRE(found);
-    puts("SESSIONS_LIVE_PASS: input, geometry, four-face render, detach/cancel/re-attach; remote child survives");
+    puts("SESSIONS_LIVE_PASS: input, geometry, four-face render, parked observer wakes/cancels independently; remote child survives");
     result = 0;
 done:
+    if(observer_started) {
+        hsc_interrupt_cancel(interrupt);
+        pthread_join(observer,NULL);
+    }
+    remote_actions_close(actions);
+    hsc_interrupt_release(&action_interrupt);
     if (remote_close(host) != HSC_OK) result = 1;
     hsr_frame_release(&frame);
     hsc_snapshot_release(&snapshot);

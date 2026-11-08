@@ -42,14 +42,28 @@ VT feeding, authentication and host-key ownership; it is not implemented here.
 
 ## 3. Bounded presentation and clear lifetime ownership
 
-One worker exclusively enters Client/Render. Ordered keys use a bounded 64-entry
-queue; frame, size and status use latest-value mailboxes. The UI releases the
-mailbox lock before converting pixels. Shutdown cancels blocking work and joins
-the worker before releasing its interrupt handle.
+A command owner handles input/resize while a separate observer waits for the next
+Server delivery revision. Each connection has exactly one I/O owner. Only the
+command attachment acquires geometry leadership. The published Client ABI has
+blocking observations, not resumable I/O; blocking the command owner would stall
+keys. Two sleeping owners avoid changing the protocol just to fit this host.
+
+Ordered keys use a bounded 64-entry queue. Coalesced resize/ready facts wake the
+command owner; latest-value UI updates schedule at most one pending callback.
+Selection cancels and joins its old observer before clearing/replacing its frame.
+Disconnect first invalidates queued UI work and cancels both I/O lanes, then joins
+owners before releasing their interrupt handles. There is no periodic host timer.
 
 The C adapter paints canonical Render commands to CPU RGBA for Slint. Howl owns
 shaping and terminal semantics. Current limits include 2048-pixel sides, 160×80
-grid, full-frame copies and 16 ms polling. This is not a GPU/performance claim.
+grid. Observations use the last Server delivery revision, not Render's narrower
+content revision. Current Render is untimed: timed cursor blinking remains an
+explicit future presentation contract, not something this host silently disables.
+Rendered images are compared byte-for-byte before
+copying/publishing them to Slint. Retain the last shared buffer, not another pixel
+copy. Content revision alone is insufficient: cursor commands can change without
+new PTY output. This avoids redundant image uploads, not full snapshot/render work.
+This is not a GPU/performance claim.
 Input overflow is reported, not hidden with an unbounded queue. IME, full
 paste/mouse integration and graphics-image presentation remain incomplete.
 

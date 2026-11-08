@@ -17,6 +17,7 @@ struct remote_client {
     struct cpu_surface surface;
     char *endpoint;
     uint64_t server;
+    uint64_t revision;
     struct remote_target targets[MAX_TARGETS];
     size_t count;
 };
@@ -88,6 +89,7 @@ uint32_t remote_attach(struct remote_client *p, uint64_t server, uint64_t sessio
                        const char *const *fonts, const char *const *fallbacks, size_t count, uint16_t pixels) {
     if (count > 24 || !fonts || !fonts[0]) return HSC_INVALID_ARGUMENT;
     hsc_attachment_release(&p->attachment);
+    p->revision = 0;
     uint32_t status = hsr_try_destroy(&p->renderer);
     if (status) return 100 + status;
     hsr_bytes fallback[24];
@@ -105,18 +107,41 @@ uint32_t remote_attach(struct remote_client *p, uint64_t server, uint64_t sessio
     return hsc_attachment_open(HSC_ABI_VERSION, (const uint8_t *)p->endpoint, strlen(p->endpoint),
         server, session, instance, p->interrupt, &p->attachment);
 }
-uint32_t remote_key(struct remote_client *p, uint8_t key, uint32_t scalar, uint8_t action, uint8_t mods) {
-    if (!p->attachment) return HSC_UNAVAILABLE;
+uint32_t remote_cell_size(const struct remote_client *p, uint16_t *width, uint16_t *height) {
+    if (!p || !p->renderer || !width || !height) return HSC_INVALID_ARGUMENT;
+    *width = p->cell.width; *height = p->cell.height;
+    return HSC_OK;
+}
+struct remote_actions { hsc_attachment *attachment; };
+uint32_t remote_actions_open(const char *endpoint, hsc_interrupt *interrupt,
+    uint64_t server, uint64_t session, uint64_t instance, struct remote_actions **out) {
+    if (!endpoint || !out || *out) return HSC_INVALID_ARGUMENT;
+    struct remote_actions *p = calloc(1, sizeof(*p));
+    if (!p) return HSC_OUT_OF_MEMORY;
+    uint32_t status = hsc_attachment_open(HSC_ABI_VERSION, (const uint8_t *)endpoint,
+        strlen(endpoint), server, session, instance, interrupt, &p->attachment);
+    if (status) { free(p); return status; }
+    *out = p;
+    return HSC_OK;
+}
+void remote_actions_close(struct remote_actions *p) {
+    if (!p) return;
+    hsc_attachment_release(&p->attachment);
+    free(p);
+}
+uint32_t remote_actions_key(struct remote_actions *p, uint8_t key, uint32_t scalar, uint8_t action, uint8_t mods) {
+    if (!p) return HSC_INVALID_ARGUMENT;
     return key ? hsc_named_key(p->attachment, key, action, mods) : hsc_unicode_key(p->attachment, scalar, action, mods);
 }
-uint32_t remote_resize(struct remote_client *p, uint32_t width, uint32_t height) {
-    if (!p->attachment) return HSC_UNAVAILABLE;
-    if (width < p->cell.width || height < p->cell.height) return HSC_OK;
-    uint32_t columns = width / p->cell.width, rows = height / p->cell.height;
+uint32_t remote_actions_resize(struct remote_actions *p, uint32_t width, uint32_t height,
+                              uint16_t cell_width, uint16_t cell_height) {
+    if (!p || !cell_width || !cell_height) return HSC_INVALID_ARGUMENT;
+    if (width < cell_width || height < cell_height) return HSC_OK;
+    uint32_t columns = width / cell_width, rows = height / cell_height;
     if (columns > 160) columns = 160;
     if (rows > 80) rows = 80;
-    if (columns * p->cell.width > CPU_MAX_SIDE || rows * p->cell.height > CPU_MAX_SIDE) return HSC_RESOURCE_LIMIT;
-    hsc_geometry geometry = {(uint16_t)rows, (uint16_t)columns, p->cell.width, p->cell.height};
+    if (columns * cell_width > CPU_MAX_SIDE || rows * cell_height > CPU_MAX_SIDE) return HSC_RESOURCE_LIMIT;
+    hsc_geometry geometry = {(uint16_t)rows, (uint16_t)columns, cell_width, cell_height};
     return hsc_resize_geometry(p->attachment, &geometry, 1);
 }
 uint32_t remote_step(struct remote_client *p, const uint8_t **pixels, uint32_t *width, uint32_t *height, int *exited) {
@@ -125,7 +150,7 @@ uint32_t remote_step(struct remote_client *p, const uint8_t **pixels, uint32_t *
     if (!p->attachment) return HSC_UNAVAILABLE;
     hsc_snapshot *snapshot = NULL;
     hsr_frame *frame = NULL;
-    uint32_t status = hsc_observe(p->attachment, 0, 0, &snapshot);
+    uint32_t status = hsc_observe(p->attachment, p->revision, 0, &snapshot);
     if (status) return status;
     hsc_metadata meta = {0};
     status = hsc_snapshot_metadata(snapshot, &meta);
@@ -137,6 +162,7 @@ uint32_t remote_step(struct remote_client *p, const uint8_t **pixels, uint32_t *
     status = hsr_frame_read(frame, &view);
     if (status) { status += 100; goto done; }
     if (cpu_paint(&p->surface, &view.info, view.commands, view.uploads)) { status = HSC_PROTOCOL_ERROR; goto done; }
+    p->revision = meta.delivery_revision;
     *pixels = p->surface.pixels;
     *width = p->surface.width;
     *height = p->surface.height;
