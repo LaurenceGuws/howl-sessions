@@ -2,20 +2,20 @@ import { Icon, IconDisplay } from "@lucide";
 import { HorizontalBox } from "std-widgets.slint";
 import { Style } from "style.slint";
 
-export component ToolButton inherits Rectangle {
+export component IconButton inherits Rectangle {
     in property <Style> style;
-    in property <string> text;
     in property <Icon> icon;
-    in property <string> label: root.text;
+    in property <string> label;
     callback clicked();
     horizontal-stretch: 0;
     vertical-stretch: 1;
     accessible-role: button;
     accessible-label: root.label;
     forward-focus: focus;
-    background: touch.has-hover || focus.has-focus ? root.style.palette.hover : transparent;
-    border-width: focus.has-focus ? root.style.stroke : 0px;
-    border-color: root.style.palette.accent;
+    background: touch.pressed ? root.style.palette.pressed : touch.has-hover ? root.style.palette.hover : transparent;
+    border-radius: root.style.radius;
+    border-width: root.style.stroke;
+    border-color: focus.has-focus ? root.style.palette.accent : touch.has-hover ? root.style.palette.border : transparent;
     HorizontalBox {
         padding: root.style.padding;
         if root.icon.paths.length > 0: Rectangle {
@@ -25,10 +25,9 @@ export component ToolButton inherits Rectangle {
                 y: (parent.height - self.height) / 2;
                 icon: root.icon;
                 size: 1rem;
-                stroke: root.style.palette.secondary;
+                stroke: touch.has-hover || focus.has-focus ? root.style.palette.text : root.style.palette.secondary;
             }
         }
-        if root.text != "": Text { text: root.text; color: root.style.palette.secondary; }
     }
     focus := FocusScope {
         key-pressed(event) => {

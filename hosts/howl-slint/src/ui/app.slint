@@ -1,14 +1,17 @@
+import { TerminalView } from "terminal-view.slint";
 import { VerticalBox, HorizontalBox } from "std-widgets.slint";
 import { Style, Theme } from "style.slint";
 import { SessionList } from "session-list.slint";
-import { TerminalBar } from "terminal-bar.slint";
+import { TabBar } from "tab-bar.slint";
 import { StatusBar } from "status-bar.slint";
 
 export component App inherits Window {
     in property <Style> style: Theme.defaults;
     title: "Howl Sessions";
-    preferred-width: 72 * root.default-font-size;
-    preferred-height: 48 * root.default-font-size;
+    default-font-family: root.style.font-family;
+    default-font-size: root.style.font-size;
+    preferred-width: 72rem;
+    preferred-height: 48rem;
     background: root.style.palette.background;
 
     in property <[string]> sessions;
@@ -16,16 +19,21 @@ export component App inherits Window {
     in property <string> selected-title;
     in-out property <bool> show-sessions: !root.compact;
     // Portrait windows show one pane; landscape windows share the space.
-    private property <bool> compact: root.width < root.height;
+    private property <bool> compact: shell-layout.width < shell-layout.height;
     private property <length> sidebar-width: 0px;
     callback select-session(int);
+    in property <bool> terminal-enabled: false;
+    in property <image> terminal-frame;
+    in property <string> terminal-status: "Starting local terminal";
+    callback terminal-key(KeyEvent, bool);
+    callback terminal-resize(int, int);
 
     // Fill the window without feeding responsive content back into its size.
     shell-layout := VerticalBox {
-        x: 0px;
-        y: 0px;
-        width: parent.width;
-        height: parent.height;
+        x: root.safe-area-insets.left;
+        y: root.safe-area-insets.top;
+        width: root.width - root.safe-area-insets.left - root.safe-area-insets.right;
+        height: root.height - root.safe-area-insets.top - root.safe-area-insets.bottom;
         padding: 0px;
         spacing: 0px;
 
@@ -37,10 +45,11 @@ export component App inherits Window {
                 visible: root.show-sessions;
                 min-width: root.show-sessions ? self.content-minimum : 0px;
                 horizontal-stretch: root.compact ? 1 : 0;
-                max-width: !root.show-sessions ? 0px : root.compact ? root.width : root.width / 2;
+                max-width: !root.show-sessions ? 0px : root.compact ? shell-layout.width : shell-layout.width / 2;
                 retained-width <=> root.sidebar-width;
                 style: root.style;
                 sessions: root.sessions;
+                detail: root.terminal-enabled ? "Local Bash" : "No connection";
                 selected-index: root.selected-index;
                 toggle-sessions => { root.show-sessions = !root.show-sessions; }
                 select-session(index) => {
@@ -53,13 +62,19 @@ export component App inherits Window {
                 horizontal-stretch: 1;
                 padding: 0px;
                 spacing: 0px;
-                TerminalBar {
+                TabBar {
                     style: root.style;
                     selected-title: root.selected-title;
                     show-sessions: root.show-sessions;
                     toggle-sessions => { root.show-sessions = !root.show-sessions; }
                 }
-                Rectangle {
+                if root.terminal-enabled: TerminalView {
+                    style: root.style;
+                    frame: root.terminal-frame;
+                    key(event, released) => { root.terminal-key(event, released); }
+                    resized(w, h) => { root.terminal-resize(w, h); }
+                }
+                if !root.terminal-enabled: Rectangle {
                     vertical-stretch: 1;
                     background: root.style.palette.terminal;
                 }
@@ -67,6 +82,8 @@ export component App inherits Window {
         }
         status-bar := StatusBar {
             style: root.style;
+            status: root.terminal-enabled ? root.terminal-status : "○  Offline";
+            detail: root.terminal-enabled ? "Local terminal proof" : "Layout preview";
         }
     }
 
@@ -76,8 +93,8 @@ export component App inherits Window {
         private property <length> drag-x;
         private property <length> drag-width;
         enabled: !root.compact && (root.show-sessions || self.dragging);
-        x: self.dragging ? self.drag-x : sidebar.width + root.style.stroke / 2 - self.width / 2;
-        y: panes.y;
+        x: self.dragging ? self.drag-x : shell-layout.x + sidebar.width + root.style.stroke / 2 - self.width / 2;
+        y: shell-layout.y + panes.y;
         width: 2 * root.style.padding + root.style.stroke;
         height: panes.height;
         mouse-cursor: col-resize;
@@ -94,13 +111,13 @@ export component App inherits Window {
             if self.pressed {
                 let requested = self.drag-width + self.mouse-x - self.pressed-x;
                 root.show-sessions = requested >= sidebar.content-minimum;
-                if root.show-sessions { root.sidebar-width = min(root.width / 2, requested); }
+                if root.show-sessions { root.sidebar-width = min(shell-layout.width / 2, requested); }
             }
         }
     }
     if root.show-sessions && !root.compact: Rectangle {
-        x: sidebar.width;
-        y: panes.y;
+        x: shell-layout.x + sidebar.width;
+        y: shell-layout.y + panes.y;
         width: root.style.stroke;
         height: panes.height;
         background: resize.has-hover || resize.pressed ? root.style.palette.accent : transparent;

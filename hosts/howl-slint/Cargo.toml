@@ -3,9 +3,19 @@ name = "howl-slint"
 version = "0.1.0"
 edition = "2024"
 
-[dependencies]
+[features]
+terminal-proof = []
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
 slint = "1.18.1"
 
+[target.'cfg(target_os = "android")'.dependencies]
+slint = { version = "1.18.1", default-features = false, features = ["std", "compat-1-2", "backend-android-activity-06"] }
+
 [build-dependencies]
+cc = "1"
 lucide-slint = "=1.70.0"
 slint-build = "=1.18.1"

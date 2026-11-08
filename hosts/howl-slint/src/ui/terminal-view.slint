@@ -1,0 +1,24 @@
+import { Style } from "style.slint";
+
+// Presentation and input only. Howl owns the terminal's cells and glyphs.
+export component TerminalView inherits FocusScope {
+    in property <Style> style;
+    in property <image> frame;
+    callback key(KeyEvent, bool);
+    callback resized(int, int);
+    vertical-stretch: 1;
+    min-width: 0px;
+    min-height: 0px;
+    changed width => { root.resized(self.width / 1px, self.height / 1px); }
+    changed height => { root.resized(self.width / 1px, self.height / 1px); }
+    key-pressed(event) => { root.key(event, false); return accept; }
+    key-released(event) => { root.key(event, true); return accept; }
+    Rectangle { background: root.style.palette.terminal; }
+    Image {
+        source: root.frame;
+        width: min(parent.width, self.source.width * 1px);
+        height: min(parent.height, self.source.height * 1px);
+        image-fit: contain;
+    }
+    TouchArea { clicked => { root.focus(); } }
+}

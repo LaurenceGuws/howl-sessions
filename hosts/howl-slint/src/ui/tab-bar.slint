@@ -1,9 +1,9 @@
 import { IconSet } from "@lucide";
 import { VerticalBox, HorizontalBox } from "std-widgets.slint";
 import { Style } from "style.slint";
-import { ToolButton } from "tool-button.slint";
+import { IconButton } from "icon-button.slint";
 
-export component TerminalBar inherits Rectangle {
+export component TabBar inherits Rectangle {
     in property <Style> style;
     in property <string> selected-title;
     in property <bool> show-sessions;
@@ -18,9 +18,9 @@ export component TerminalBar inherits Rectangle {
             vertical-stretch: 0;
             background: root.style.palette.chrome;
             HorizontalBox {
-                padding: 0px;
-                spacing: 0px;
-                if !root.show-sessions: ToolButton {
+                padding: root.style.spacing;
+                spacing: root.style.spacing;
+                if !root.show-sessions: IconButton {
                     style: root.style;
                     icon: IconSet.ChevronsRight;
                     label: "Show sessions";
@@ -28,23 +28,22 @@ export component TerminalBar inherits Rectangle {
                 }
                 active-tab := Rectangle {
                     horizontal-stretch: 0;
-                    background: root.style.palette.terminal;
+                    border-radius: root.style.radius;
+                    // Current-session marker, not an extra action button.
+                    border-width: root.style.stroke;
+                    border-color: root.style.palette.selection-border;
+                    background: tab-hover.has-hover ? root.style.palette.selected-hover : root.style.palette.selected;
                     HorizontalBox {
                         padding: root.style.padding;
                         spacing: root.style.padding;
                         Text { text: ">_"; font-family: "monospace"; color: root.style.palette.accent; }
                         Text {
                             text: root.selected-title;
-                            font-weight: root.style.emphasis;
                             color: root.style.palette.text;
                         }
                     }
-                    Rectangle {
-                        y: parent.height - self.height;
-                        width: parent.width;
-                        height: root.style.stroke;
-                        background: root.style.palette.accent;
-                    }
+                    // Hover acknowledges the current tab; no fake click action or keyboard stop.
+                    tab-hover := TouchArea { }
                 }
                 Rectangle { horizontal-stretch: 1; }
 

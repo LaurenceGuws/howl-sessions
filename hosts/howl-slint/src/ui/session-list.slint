@@ -1,10 +1,11 @@
-import { IconSet } from "@lucide";
+import { IconSet, IconDisplay } from "@lucide";
 import { VerticalBox, HorizontalBox } from "std-widgets.slint";
-import { ToolButton } from "tool-button.slint";
+import { IconButton } from "icon-button.slint";
 import { Style } from "style.slint";
 
 export component SessionList inherits Rectangle {
     in property <Style> style;
+    in property <string> detail;
     in property <[string]> sessions;
     in property <int> selected-index;
     out property <length> content-minimum: content.min-width;
@@ -20,8 +21,8 @@ export component SessionList inherits Rectangle {
         spacing: 0px;
         HorizontalBox {
             vertical-stretch: 0;
-            padding: 0px;
-            spacing: 0px;
+            padding: root.style.spacing;
+            spacing: root.style.spacing;
             HorizontalBox {
                 padding: root.style.padding;
                 horizontal-stretch: 1;
@@ -33,13 +34,13 @@ export component SessionList inherits Rectangle {
                     vertical-alignment: center;
                 }
             }
-            options-button := ToolButton {
+            session-options-button := IconButton {
                 style: root.style;
                 icon: IconSet.Ellipsis;
-                label: "Options";
-                clicked => { options.show(); }
+                label: "Session options";
+                clicked => { session-options.show(); }
             }
-            ToolButton {
+            IconButton {
                 style: root.style;
                 icon: IconSet.ChevronsLeft;
                 label: "Hide sessions";
@@ -58,8 +59,12 @@ export component SessionList inherits Rectangle {
                 vertical-stretch: 0;
                 border-radius: root.style.radius;
                 border-width: root.style.stroke;
-                border-color: root.selected-index == index ? root.style.palette.selection-border : transparent;
-                background: root.selected-index == index ? root.style.palette.selected : (row-input.has-hover ? root.style.palette.hover : transparent);
+                accessible-role: button;
+                accessible-label: session;
+                forward-focus: row-focus;
+                // Selection persists; focus is a separate navigation cue.
+                border-color: row-focus.has-focus ? root.style.palette.accent : root.selected-index == index ? root.style.palette.selection-border : row-input.has-hover ? root.style.palette.border : transparent;
+                background: row-input.pressed ? root.style.palette.pressed : root.selected-index == index ? (row-input.has-hover ? root.style.palette.selected-hover : root.style.palette.selected) : row-input.has-hover ? root.style.palette.hover : transparent;
                 HorizontalBox {
                     padding: root.style.padding;
                     spacing: root.style.padding;
@@ -74,28 +79,92 @@ export component SessionList inherits Rectangle {
                         horizontal-stretch: 1;
                     }
                 }
-                row-input := TouchArea { clicked => { root.select-session(index); } }
+                row-focus := FocusScope {
+                    key-pressed(event) => {
+                        if event.text == Key.Space || event.text == Key.Return {
+                            root.select-session(index);
+                            return accept;
+                        }
+                        return reject;
+                    }
+                }
+                row-input := TouchArea { clicked => { row-focus.focus(); root.select-session(index); } }
             }
             Rectangle { vertical-stretch: 1; }
         }
     }
-    options := PopupWindow {
-        x: options-button.x;
-        y: options-button.y + options-button.height;
+    session-options := PopupWindow {
+        x: session-options-button.x;
+        y: session-options-button.y + session-options-button.height + root.style.spacing;
         close-policy: close-on-click-outside;
         Rectangle {
             background: root.style.palette.chrome;
+            border-radius: root.style.radius;
             border-width: root.style.stroke;
             border-color: root.style.palette.border;
             VerticalBox {
                 padding: root.style.padding;
-                spacing: root.style.padding;
-                ToolButton {
-                    style: root.style;
-                    text: "Hide sessions";
-                    clicked => { root.toggle-sessions(); options.close(); }
+                spacing: root.style.spacing;
+                HorizontalBox {
+                    padding: root.style.padding;
+                    Text {
+                        text: "Session options";
+                        font-weight: root.style.emphasis;
+                        color: root.style.palette.secondary;
+                    }
                 }
-                Text { text: "Layout preview · no connection"; color: root.style.palette.muted; }
+                hide-sessions := Rectangle {
+                    init => { menu-focus.focus(); }
+                    vertical-stretch: 0;
+                    border-radius: root.style.radius;
+                    border-width: root.style.stroke;
+                    border-color: menu-focus.has-focus ? root.style.palette.accent : transparent;
+                    background: menu-input.pressed ? root.style.palette.pressed : menu-input.has-hover ? root.style.palette.hover : transparent;
+                    accessible-role: button;
+                    accessible-label: "Hide sessions";
+                    forward-focus: menu-focus;
+                    HorizontalBox {
+                        padding: root.style.padding;
+                        spacing: root.style.padding;
+                        Rectangle {
+                            width: 1rem;
+                            min-height: 1rem;
+                            IconDisplay {
+                                y: (parent.height - self.height) / 2;
+                                icon: IconSet.ChevronsLeft;
+                                size: 1rem;
+                                stroke: root.style.palette.secondary;
+                            }
+                        }
+                        Text { text: "Hide sessions"; color: root.style.palette.text; }
+                        Rectangle { horizontal-stretch: 1; }
+                    }
+                    menu-focus := FocusScope {
+                        key-pressed(event) => {
+                            if event.text == Key.Space || event.text == Key.Return {
+                                root.toggle-sessions(); session-options.close();
+                                return accept;
+                            }
+                            if event.text == Key.Escape { session-options.close(); return accept; }
+                            return reject;
+                        }
+                    }
+                    menu-input := TouchArea {
+                        clicked => { root.toggle-sessions(); session-options.close(); }
+                    }
+                }
+                Rectangle {
+                    height: root.style.stroke;
+                    background: root.style.palette.border;
+                }
+                HorizontalBox {
+                    padding: root.style.padding;
+                    Text {
+                        text: root.detail;
+                        font-size: 0.85rem;
+                        color: root.style.palette.muted;
+                    }
+                }
             }
         }
     }
