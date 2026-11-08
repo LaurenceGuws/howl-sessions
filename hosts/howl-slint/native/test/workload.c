@@ -5,6 +5,8 @@
 #include "remote.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <errno.h>
 #include <time.h>
 #include <pthread.h>
 #define REQUIRE(x) do { if (!(x)) { fprintf(stderr, "workload line %d: %s\n", __LINE__, #x); goto done; } } while (0)
@@ -32,8 +34,22 @@ static void *deadline_run(void *data) {
     pthread_mutex_unlock(&d->mutex);
     return NULL;
 }
+static unsigned dimension(const char *text, unsigned maximum) {
+    char *end = NULL;
+    errno = 0;
+    unsigned long value = strtoul(text, &end, 10);
+    if (errno || !*text || *end || value == 0 || value > maximum) return 0;
+    return (unsigned)value;
+}
 int main(int argc, char **argv) {
-    if (argc != 4) { fprintf(stderr, "usage: sessions-workload ENDPOINT FONT_PATH SHELL_COMMAND\n"); return 2; }
+    if (argc != 4 && argc != 7) {
+        fprintf(stderr, "usage: sessions-workload ENDPOINT FONT_PATH SHELL_COMMAND [COLUMNS ROWS FONT_PIXELS]\n");
+        return 2;
+    }
+    unsigned columns = argc == 7 ? dimension(argv[4], 160) : 128;
+    unsigned rows = argc == 7 ? dimension(argv[5], 80) : 40;
+    unsigned font_pixels = argc == 7 ? dimension(argv[6], 256) : 16;
+    if (!columns || !rows || !font_pixels) return 2;
     int result = 1;
     hsc_interrupt *interrupt=NULL;
     struct deadline deadline={.mutex=PTHREAD_MUTEX_INITIALIZER};
@@ -58,7 +74,7 @@ int main(int argc, char **argv) {
     char command[4096];
     int length = snprintf(command, sizeof(command), "read start; %s", argv[3]);
     REQUIRE(length > 0 && (size_t)length < sizeof(command));
-    hsc_launch launch = {.session_id = session, .rows = 40, .columns = 128, .history_rows = 32,
+    hsc_launch launch = {.session_id = session, .rows = (uint16_t)rows, .columns = (uint16_t)columns, .history_rows = 32,
         .shell = (const uint8_t *)"/bin/sh", .shell_len = 7,
         .command = (const uint8_t *)command, .command_len = (size_t)length};
     hsc_identity identity = {0};
@@ -68,7 +84,11 @@ int main(int argc, char **argv) {
     REQUIRE(hsc_interrupt_create(HSC_ABI_VERSION,&interrupt)==HSC_OK);
     REQUIRE(remote_open(argv[1], interrupt, &host) == HSC_OK);
     const char *fonts[] = {argv[2], argv[2], argv[2], argv[2]};
-    REQUIRE(remote_attach(host, server.server_id, session, identity.instance_id, fonts, NULL, 0, 16) == HSC_OK);
+    REQUIRE(remote_attach(host, server.server_id, session, identity.instance_id, fonts, NULL, 0, (uint16_t)font_pixels) == HSC_OK);
+    uint16_t cell_width = 0, cell_height = 0;
+    REQUIRE(remote_cell_size(host, &cell_width, &cell_height) == HSC_OK);
+    hsc_geometry geometry = {(uint16_t)rows, (uint16_t)columns, cell_width, cell_height};
+    REQUIRE(hsc_resize_geometry(input, &geometry, 1) == HSC_OK);
     const uint8_t *pixels; uint32_t width = 0, height = 0; int exited = 0;
     REQUIRE(remote_step(host, &pixels, &width, &height, &exited) == HSC_OK);
     double wall0 = milliseconds(CLOCK_MONOTONIC), cpu0 = milliseconds(CLOCK_PROCESS_CPUTIME_ID);
@@ -76,14 +96,27 @@ int main(int argc, char **argv) {
     deadline.interrupt=interrupt;
     REQUIRE(pthread_create(&timer,NULL,deadline_run,&deadline)==0); timer_started=1;
     unsigned frames = 0;
+    /* Store bounded samples; print only after measurement so stdout does not
+     * become part of the frame path. These are observations, not presentations. */
+    struct sample { double elapsed, wall, cpu; } samples[4096];
     while (!exited && milliseconds(CLOCK_MONOTONIC) - wall0 < 15000) {
+        REQUIRE(frames < sizeof(samples) / sizeof(samples[0]));
+        double step_wall = milliseconds(CLOCK_MONOTONIC);
+        double step_cpu = milliseconds(CLOCK_THREAD_CPUTIME_ID);
         REQUIRE(remote_step(host, &pixels, &width, &height, &exited) == HSC_OK);
         REQUIRE(pixels && width && height);
-        frames++;
+        double end = milliseconds(CLOCK_MONOTONIC);
+        samples[frames++] = (struct sample){end - wall0, end - step_wall,
+            milliseconds(CLOCK_THREAD_CPUTIME_ID) - step_cpu};
     }
     REQUIRE(exited);
     double cpu = milliseconds(CLOCK_PROCESS_CPUTIME_ID) - cpu0, wall = milliseconds(CLOCK_MONOTONIC) - wall0;
     printf("WORKLOAD_BENCH frames=%u width=%u height=%u wall_ms=%.3f client_cpu_ms=%.3f step_wall_ms=%.3f\n", frames, width, height, wall, cpu, wall / frames);
+    printf("WORKLOAD_GEOMETRY columns=%u rows=%u font_pixels=%u cell_width=%u cell_height=%u\n",
+        columns, rows, font_pixels, cell_width, cell_height);
+    for (unsigned i = 0; i < frames; i++)
+        printf("WORKLOAD_SAMPLE index=%u elapsed_ms=%.3f wall_ms=%.3f cpu_ms=%.3f\n",
+            i, samples[i].elapsed, samples[i].wall, samples[i].cpu);
     result = 0;
 done:
     if(timer_started) {

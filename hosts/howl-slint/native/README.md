@@ -55,8 +55,8 @@ images are explicitly unsupported. These constraints are not a GPU/performance
 claim; they remain visible design work rather than alternate runtime modes.
 
 
-`benchmark-workload -- ENDPOINT FONT_PATH SHELL_COMMAND` launches an explicit
-finite command in its own 128×40 Session, starts it after the renderer is ready,
+`benchmark-workload -- ENDPOINT FONT_PATH SHELL_COMMAND [COLUMNS ROWS FONT_PIXELS]`
+launches an explicit finite command in its own Session (default 128×40, 16px), starts it after the renderer is ready,
 and samples the complete native adapter until child exit (15-second bound).
 For example, use the installed `tui-zoo rain --fps 30 --duration-ms 4000 --seed 7
 --cols 128 --rows 40 --synchronized-output`, or `cells` with `--dose 64`.
@@ -64,3 +64,9 @@ Redirect the workload's stderr to a chosen workstream receipt file to preserve
 producer metrics separately. Samples follow Server delivery changes, which can
 include non-content metadata changes; their count is not displayed FPS. The harness does not exercise
 Slint upload, UI pacing or presentation and does not alter other Sessions.
+
+The optional geometry is applied with actual font cell metrics before starting
+the workload. Up to 4096 timestamped observation wall/CPU samples are retained
+and printed after measurement, so stdout does not pace the client. Compare
+identical grids, font files, physical rasters and producer receipts across routes.
+These samples include waiting plus native rendering, not UI presentation.
