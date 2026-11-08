@@ -70,3 +70,29 @@ the workload. Up to 4096 timestamped observation wall/CPU samples are retained
 and printed after measurement, so stdout does not pace the client. Compare
 identical grids, font files, physical rasters and producer receipts across routes.
 These samples include waiting plus native rendering, not UI presentation.
+
+### Observation encoding comparison
+
+`zig build benchmark-observe -Doptimize=ReleaseSafe -- ENDPOINT FONT COMMAND packed|cached [COLS ROWS PIXELS]`
+uses a disposable Session and test-only Client/ClientRender ABI composition with
+our existing `cpu.c`. It does **not** add a transport-mode switch to the host.
+The bounded 15-second run reports observation wall/thread CPU, canonical capture
+CPU and CPU composition separately. Observation wall includes server waiting,
+encoding, transport and client decoding; it is not network latency. Counts are
+observations, not displayed frames. Samples are printed after measurement.
+
+Use identical geometry/font/producer and alternate mode order. Example producers
+(the command executes on the Server machine):
+
+- Sparse: `tui-zoo cells --fps 60 --duration-ms 6000 --seed 7 --cols 128 --rows 40 --dose 1 --synchronized-output`
+- More rows touched: the same command with `--dose 64` or `--dose 512`. Dose counts random writes, not full-screen redraws.
+- Scrolling: `python3 /path/to/native/test/scroll.py` (fixed 360 lines/6 seconds).
+
+Keep producer stderr receipts separately from client timing. Quiescent post-exit
+checks compare packed/cached cells and scalars, snapshot lifetime after cache
+release, foreign-attachment rejection, fresh-attachment cache and cancellation.
+TUI workloads may restore an empty primary screen, so those checks do not prove
+live-frame parity. For nonempty pixel parity, run a finite `printf` fixture with
+Unicode, wide/combining text, colors and styles, and `\033[?25l` to hide the cursor.
+When hidden, two independently initialized canonical renderers must yield exactly
+equal RGBA pixels. Visible cursor age is deliberately excluded from that claim.

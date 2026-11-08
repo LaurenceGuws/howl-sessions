@@ -27,6 +27,14 @@ pub fn build(b: *std.Build) void {
     const workload_run = b.addRunArtifact(workload);
     workload_run.addPassthruArgs();
     b.step("benchmark-workload", "Measure a finite workload in a disposable Session: -- ENDPOINT FONT_PATH SHELL_COMMAND").dependOn(&workload_run.step);
+    const observe_module = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+    observe_module.linkLibrary(render.artifact("howl_sessions_native"));
+    observe_module.addIncludePath(b.path("."));
+    observe_module.addCSourceFiles(.{ .files = &.{ "test/observe.c", "cpu.c" }, .flags = &.{ "-std=c11", "-Wall", "-Wextra", "-Werror" } });
+    const observe = b.addExecutable(.{ .name = "sessions-observe", .root_module = observe_module });
+    const observe_run = b.addRunArtifact(observe);
+    observe_run.addPassthruArgs();
+    b.step("benchmark-observe", "Compare packed/cached observations through canonical Render: -- ENDPOINT FONT COMMAND MODE [COLS ROWS PIXELS]").dependOn(&observe_run.step);
 }
 
 fn cpuTest(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, abi: *std.Build.Step.Compile) void {
