@@ -76,6 +76,41 @@ pub export fn hsr_create(version: u32, config: ?*const bridge.Config, out: ?*?*a
     slot.* = @ptrCast(value);
     return @backingInt(Status.ok);
 }
+/// Creates four explicit faces without changing the published single-face ABI.
+// zig-audit: acknowledge anyopaque
+// reason: This opaque output names a renderer owned by the composed library.
+pub export fn hsr_create_family(version: u32, config: ?*const bridge.FamilyConfig, out: ?*?*anyopaque) u32 {
+    if (version != bridge.abi_version) return @backingInt(Status.version_mismatch);
+    const slot = out orelse return @backingInt(Status.invalid_argument);
+    if (slot.* != null) return @backingInt(Status.invalid_argument);
+    const input = config orelse return @backingInt(Status.invalid_argument);
+    if (input.reserved != 0 or input.pixel_size == 0) return @backingInt(Status.invalid_argument);
+    var configs: [4]?bridge.FontConfig = @splat(null);
+    var fallback_storage: [4][bridge.maximum_fallbacks][]const u8 = undefined;
+    for (input.fonts, 0..) |font, index| {
+        if (font.primary.len == 0) {
+            if (index == 0 or font.primary.data != null or font.fallback_count != 0 or font.fallbacks != null)
+                return @backingInt(Status.invalid_argument);
+            continue;
+        }
+        if (font.fallback_count > bridge.maximum_fallbacks or
+            (font.fallback_count != 0 and font.fallbacks == null)) return @backingInt(Status.invalid_argument);
+        const primary = path(font.primary) orelse return @backingInt(Status.invalid_argument);
+        for (0..font.fallback_count) |i| {
+            fallback_storage[index][i] = path(font.fallbacks[i]) orelse return @backingInt(Status.invalid_argument);
+        }
+        configs[index] = .{
+            .primary = primary,
+            .fallbacks = fallback_storage[index][0..font.fallback_count],
+            .size = .{ .pixels = input.pixel_size },
+        };
+    }
+    const value = bridge.createFamily(heap, configs) catch |err| return failure(err);
+    // zig-audit: acknowledge ptr_cast
+    // reason: This pointer denotes the freshly allocated matching private renderer handle.
+    slot.* = @ptrCast(value);
+    return @backingInt(Status.ok);
+}
 /// Destroys an idle renderer; BUSY preserves its owning slot.
 // zig-audit: acknowledge anyopaque
 // reason: Only the defining C ABI releases this native handle.

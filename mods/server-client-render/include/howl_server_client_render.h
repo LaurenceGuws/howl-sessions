@@ -21,6 +21,18 @@ typedef struct hsr_config {
     size_t fallback_count;
     uint16_t pixel_size, reserved;
 } hsr_config;
+/* Family order is regular, italic, bold, bold-italic. Regular is required;
+ * an all-zero optional face uses canonical Render style fallback. Each supplied
+ * face owns its ordered fallback paths; all faces use the common pixel size. */
+typedef struct hsr_font {
+    hsr_bytes primary;
+    const hsr_bytes *fallbacks;
+    size_t fallback_count;
+} hsr_font;
+typedef struct hsr_family_config {
+    hsr_font fonts[4];
+    uint16_t pixel_size, reserved;
+} hsr_family_config;
 enum hsr_status {
     HSR_OK=0, HSR_INVALID_ARGUMENT=1, HSR_VERSION_MISMATCH=2,
     HSR_OUT_OF_MEMORY=3, HSR_RESOURCE_LIMIT=4, HSR_BUSY=5,
@@ -35,6 +47,9 @@ uint32_t hsr_abi_version(void);
  * Failed constructors leave a NULL output slot. The renderer has a private
  * resource namespace and exactly one outstanding immutable frame lease. */
 uint32_t hsr_create(uint32_t version, const hsr_config *, hsr_renderer **out);
+/* Additive ABI v1 constructor; hsr_config/hsr_create retain their original layout
+ * and single-face behavior. Uses regular-face metrics for the terminal grid. */
+uint32_t hsr_create_family(uint32_t version, const hsr_family_config *, hsr_renderer **out);
 /* BUSY preserves the owner; NULL slot/value is a successful no-op. */
 uint32_t hsr_try_destroy(hsr_renderer **owner);
 uint32_t hsr_cell_size(const hsr_renderer *, hrc_cell_size *out);

@@ -1972,3 +1972,33 @@ test "terminal renderer canonical singleton and mixed cluster cells equal rich a
     for (cases) |bytes| try expectDirectEquivalent(bytes, 0);
     try expectDirectEquivalent(cases[cases.len - 1], 2);
 }
+
+test "native family owns all styles and keeps regular grid metrics" {
+    const config: text.Config = .{ .primary = fonts.primary_font, .size = .{ .pixels = 16 } };
+    const owner = try native.createFamily(std.testing.allocator, @splat(config));
+    const expected = owner.fonts[0].?.metrics();
+    try std.testing.expectEqual(expected.advance_width, native.cellSize(owner).width);
+    try std.testing.expectEqual(expected.line_height, native.cellSize(owner).height);
+    for (owner.fonts, 0..) |font, i| {
+        try std.testing.expect(font != null);
+        for (owner.fonts[0..i]) |previous| try std.testing.expect(previous != font);
+    }
+    var scalar = [_]u32{'A'};
+    var cells: [4]client.rich.Cell = @splat(cell(&scalar, 1, 0));
+    for (&cells, 0..) |*value, i| value.style_bits = @intCast(i);
+    var rows = [_]client.rich.Row{.{ .wrapped = false, .line_geometry = 0, .cells = &cells }};
+    const source = sourceSnapshot(&rows, 4);
+    const view = try client.view.project(std.testing.allocator, &source);
+    defer client.view.deinit(view);
+    const frame = try native.capture(owner, view, &.{});
+    try std.testing.expect(native.read(frame).info.command_count >= 4);
+    native.release(frame);
+    try native.destroy(owner);
+}
+
+test "native family partial failure releases earlier faces" {
+    const regular: text.Config = .{ .primary = fonts.primary_font, .size = .{ .pixels = 16 } };
+    const missing: text.Config = .{ .primary = "/howl-no-such-font-file-935710.ttf", .size = .{ .pixels = 16 } };
+    try std.testing.expectError(error.FontOpen, native.createFamily(std.testing.allocator, .{ regular, regular, missing, null }));
+    try std.testing.expectError(error.InvalidArgument, native.createFamily(std.testing.allocator, .{ null, regular, null, null }));
+}

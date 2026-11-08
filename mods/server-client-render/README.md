@@ -15,13 +15,20 @@ opaque snapshot from a different copy of Server Client. The C side receives
 the exact canonical Howl Render frame records, and a frame owns its copied
 commands/pixels until release. The snapshot is borrowed only during capture.
 
-The current native slice admits a primary font and up to 24 fallbacks, plus
-one frame per renderer. Scratch grows to finite command/atlas limits. It rejects graphics
+The native ABI v1 retains its original single-face `hsr_create` constructor.
+`hsr_create_family` additionally accepts regular, italic, bold and bold-italic
+faces, each with up to 24 ordered fallback paths. Regular is required; absent
+optional faces follow canonical Render fallback. Regular metrics fix the grid,
+and all C family faces use one pixel size. Font paths are copied during the call;
+failed construction releases staged faces. Each renderer admits one frame. Scratch grows to finite command/atlas limits. It rejects graphics
 manifests explicitly until the separate image-fetch/resource-binding lane is
 wired. The Flutter host now builds with this composed library and paints copied
 canonical commands on Canvas. The Dart binding owns native record layout;
 Flutter owns image decoding and actual backend residency. Android live Canvas,
-iOS packaging, font-style variants and graphics fetching are still pending.
+iOS packaging and graphics fetching are still pending. Hosts must opt into the
+family constructor to supply explicit style faces.
 
-This package starts at 0.1.0-dev. It currently depends on the sibling Server
-Client package until independently releasable archives are qualified.
+The workspace composes the sibling Server Client. Release archives replace that
+path with an exact published URL/hash. Package versions and ABI v1 are distinct:
+the family constructor adds a symbol and record without changing old layouts or
+single-face behavior; old binaries do not provide the new symbol.

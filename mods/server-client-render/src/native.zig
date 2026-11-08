@@ -19,6 +19,10 @@ pub const maximum_fallbacks = render.text.max_fallbacks;
 pub const Bytes = types.hsr_bytes;
 /// Constructor input from the single module-owned C header.
 pub const Config = types.hsr_config;
+/// Four-face constructor translated from the same module-owned C header.
+pub const FamilyConfig = types.hsr_family_config;
+/// Exact Text source configuration for one supplied family slot.
+pub const FontConfig = render.text.Config;
 /// Public status vocabulary, its numeric values translated from that header.
 pub const Status = enum(u32) {
     ok = types.HSR_OK,
@@ -38,10 +42,10 @@ const pixels_limit: usize = @as(usize, atlas_width) * atlas_height * 5;
 /// Complete bridge constructor/capture error set.
 pub const Error = render.text.InitError || render.InitError || render.Error ||
     projection.Error || error{ InvalidArgument, ResourceLimit, Busy, UnsupportedImages };
-/// Owns one font, Renderer, finite scratch and at most one frame.
+/// Owns supplied font faces, Renderer, finite scratch and at most one frame.
 pub const Renderer = struct {
     allocator: std.mem.Allocator,
-    font: *render.text.FontSet,
+    fonts: [4]?*render.text.FontSet,
     renderer: *render.Renderer,
     cell: render.Size,
     commands: []render.Command,
@@ -61,19 +65,40 @@ pub const Frame = struct {
 
 /// Construct one font and one renderer; all pixel/command budgets are finite.
 pub fn create(allocator: std.mem.Allocator, path: []const u8, fallbacks: []const []const u8, pixel_size: u16) Error!*Renderer {
-    if (pixel_size == 0 or path.len == 0 or path.len > maximum_font_path_bytes or
-        std.mem.indexOfScalar(u8, path, 0) != null or fallbacks.len > render.text.max_fallbacks) return error.InvalidArgument;
-    for (fallbacks) |candidate| {
-        if (candidate.len == 0 or candidate.len > maximum_font_path_bytes or
-            std.mem.indexOfScalar(u8, candidate, 0) != null) return error.InvalidArgument;
-    }
-    const font = try render.text.FontSet.init(allocator, .{
-        .primary = path,
-        .fallbacks = fallbacks,
-        .size = .{ .pixels = pixel_size },
+    if (pixel_size == 0) return error.InvalidArgument;
+    return createFamily(allocator, .{
+        .{ .primary = path, .fallbacks = fallbacks, .size = .{ .pixels = pixel_size } },
+        null,
+        null,
+        null,
     });
-    errdefer font.deinit();
-    const faces = render.FontFaces.single(font);
+}
+/// Constructs the canonical regular/italic/bold/bold-italic family. Missing
+/// optional faces follow Render policy; failure releases every staged face.
+pub fn createFamily(allocator: std.mem.Allocator, configs: [4]?render.text.Config) Error!*Renderer {
+    if (configs[0] == null) return error.InvalidArgument;
+    var fonts: [4]?*render.text.FontSet = @splat(null);
+    errdefer for (fonts) |font| {
+        if (font) |owned| owned.deinit();
+    };
+    for (configs, 0..) |config, index| {
+        if (config) |input| {
+            if (input.primary.len == 0 or input.primary.len > maximum_font_path_bytes or
+                std.mem.indexOfScalar(u8, input.primary, 0) != null or input.fallbacks.len > maximum_fallbacks)
+                return error.InvalidArgument;
+            for (input.fallbacks) |candidate| {
+                if (candidate.len == 0 or candidate.len > maximum_font_path_bytes or
+                    std.mem.indexOfScalar(u8, candidate, 0) != null) return error.InvalidArgument;
+            }
+            fonts[index] = try render.text.FontSet.init(allocator, input);
+        }
+    }
+    const faces: render.FontFaces = .{
+        .regular = fonts[0].?,
+        .italic = fonts[1],
+        .bold = fonts[2],
+        .bold_italic = fonts[3],
+    };
     const metrics = faces.metrics();
     const cell: render.Size = .{ .width = metrics.advance_width, .height = metrics.line_height };
     const renderer = try render.initPrivate(allocator, faces, .{
@@ -104,7 +129,7 @@ pub fn create(allocator: std.mem.Allocator, path: []const u8, fallbacks: []const
     const owner = try allocator.create(Renderer);
     owner.* = .{
         .allocator = allocator,
-        .font = font,
+        .fonts = fonts,
         .renderer = renderer,
         .cell = cell,
         .commands = commands,
@@ -119,7 +144,9 @@ pub fn destroy(value: *Renderer) error{Busy}!void {
     render.deinit(value.renderer);
     allocator.free(value.commands);
     allocator.free(value.pixels);
-    value.font.deinit();
+    for (value.fonts) |font| {
+        if (font) |owned| owned.deinit();
+    }
     allocator.destroy(value);
 }
 /// Returns the fixed font-derived cell extent.

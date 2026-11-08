@@ -29,5 +29,23 @@ int main(int argc, char **argv) {
     if (hsr_frame_read(0, &view) != HSR_INVALID_ARGUMENT || view.info.revision) return 6;
     hsr_frame_release(&frame);
     if (hsr_try_destroy(&owner) != HSR_OK || owner) return 7;
+    hsr_family_config family = {.pixel_size = 16};
+    if (hsr_create_family(HSR_ABI_VERSION + 1, 0, &owner) != HSR_VERSION_MISMATCH || owner) return 8;
+    if (hsr_create_family(HSR_ABI_VERSION, &family, &owner) != HSR_INVALID_ARGUMENT || owner) return 9;
+    for (size_t i = 0; i < 4; i++) family.fonts[i].primary = config.primary;
+    family.fonts[2].fallback_count = 25;
+    if (hsr_create_family(HSR_ABI_VERSION, &family, &owner) != HSR_INVALID_ARGUMENT || owner) return 10;
+    family.fonts[2].fallback_count = 0;
+    family.reserved = 1;
+    if (hsr_create_family(HSR_ABI_VERSION, &family, &owner) != HSR_INVALID_ARGUMENT || owner) return 11;
+    family.reserved = 0;
+    if (hsr_create_family(HSR_ABI_VERSION, &family, &owner) != HSR_OK || !owner) return 12;
+    hrc_cell_size family_size = {0};
+    if (hsr_cell_size(owner, &family_size) != HSR_OK ||
+        family_size.width != size.width || family_size.height != size.height) return 13;
+    if (hsr_try_destroy(&owner) != HSR_OK || owner) return 14;
+    memset(&family.fonts[1], 0, 3 * sizeof(family.fonts[0]));
+    if (hsr_create_family(HSR_ABI_VERSION, &family, &owner) != HSR_OK || !owner) return 15;
+    if (hsr_try_destroy(&owner) != HSR_OK || owner) return 16;
     return 0;
 }
