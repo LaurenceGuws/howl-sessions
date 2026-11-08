@@ -1,82 +1,90 @@
-import { HorizontalBox } from "std-widgets.slint";
+import { VerticalBox, HorizontalBox, GridBox } from "std-widgets.slint";
 import { Style } from "style.slint";
+import { ConnectionAction } from "connection-action.slint";
 
-component ConnectionAction inherits Rectangle {
+export struct SessionRow { server-id: string, session-id: string, instance-id: string, title: string }
+export struct ServerProfile { id: string, name: string, endpoint: string, visible: bool, status: string, sessions: [SessionRow] }
+
+component Field inherits Rectangle {
     in property <Style> style;
-    in property <string> text;
-    in property <bool> enabled: true;
-    callback clicked();
-    horizontal-stretch: 0;
-    vertical-stretch: 1;
-    accessible-role: button;
-    accessible-label: root.text;
-    forward-focus: focus;
+    in-out property <string> text;
+    in property <string> label;
+    accessible-role: text-input;
+    accessible-label: root.label;
+    vertical-stretch: 0;
+    horizontal-stretch: 1;
+    min-width: 0px;
+    forward-focus: input;
     border-radius: root.style.radius;
     border-width: root.style.stroke;
-    border-color: focus.has-focus ? root.style.palette.accent : root.style.palette.border;
-    background: !root.enabled ? transparent : touch.pressed ? root.style.palette.pressed : touch.has-hover ? root.style.palette.hover : root.style.palette.sidebar;
+    border-color: input.has-focus ? root.style.palette.accent : root.style.palette.border;
+    background: root.style.palette.background;
+    TouchArea { clicked => { input.focus(); } }
     HorizontalBox {
         padding: root.style.padding;
-        Text { text: root.text; color: root.enabled ? root.style.palette.text : root.style.palette.muted; vertical-alignment: center; }
-    }
-    focus := FocusScope {
-        enabled: root.enabled;
-        key-pressed(event) => {
-            if event.text == Key.Space || event.text == Key.Return { root.clicked(); return accept; }
-            return reject;
+        input := TextInput {
+            text <=> root.text;
+            single-line: true;
+            min-height: 1rem;
+            vertical-alignment: center;
+            color: root.style.palette.text;
+            selection-background-color: root.style.palette.selected;
+            selection-foreground-color: root.style.palette.text;
+            min-width: 0px;
+            horizontal-stretch: 1;
         }
     }
-    touch := TouchArea { enabled: root.enabled; clicked => { focus.focus(); root.clicked(); } }
 }
 
-// Explicit transport address, not credentials or persisted preferences.
+// A server draft. Saving and validation belong to the settings owner.
 export component ServerConnection inherits Rectangle {
     in property <Style> style;
-    in-out property <string> endpoint;
-    in property <bool> connected;
-    in property <bool> connecting;
-    callback connect(string);
-    callback disconnect();
+    in property <string> profile-id;
+    in-out property <string> draft-name;
+    in-out property <string> draft-endpoint;
+    in property <string> error;
+    forward-focus: name-field;
+    init => { name-field.focus(); }
+    callback save(string, string, string);
+    callback remove(string);
+    callback refresh(string);
+    callback close();
     vertical-stretch: 0;
     background: root.style.palette.chrome;
-    HorizontalBox {
+    border-radius: root.style.radius;
+    border-width: root.style.stroke;
+    border-color: root.style.palette.border;
+    VerticalBox {
         padding: root.style.padding;
         spacing: root.style.padding;
-        Text { text: "Server"; color: root.style.palette.secondary; vertical-alignment: center; }
-        Rectangle {
-            horizontal-stretch: 1;
-            min-width: 0px;
-            border-radius: root.style.radius;
-            border-width: root.style.stroke;
-            border-color: address.has-focus ? root.style.palette.accent : root.style.palette.border;
-            background: root.style.palette.background;
-            HorizontalBox {
-                padding: root.style.padding;
-                address := TextInput {
-                    text <=> root.endpoint;
-                    single-line: true;
-                    enabled: !root.connecting;
-                    color: root.style.palette.text;
-                    selection-background-color: root.style.palette.selected;
-                    selection-foreground-color: root.style.palette.text;
-                    horizontal-stretch: 1;
-                    min-width: 0px;
-                    vertical-alignment: center;
-                    accepted => { if root.endpoint != "" { root.connect(root.endpoint); } }
-                }
+        GridBox {
+            padding: 0px;
+            vertical-stretch: 0;
+            spacing: root.style.spacing;
+            Row {
+                Text { text: "Name"; color: root.style.palette.secondary; vertical-alignment: center; }
+                name-field := Field { style: root.style; label: "Server name"; text <=> root.draft-name; }
+            }
+            Row {
+                Text { text: "Address"; color: root.style.palette.secondary; vertical-alignment: center; }
+                Field { style: root.style; label: "Server address"; text <=> root.draft-endpoint; }
             }
         }
-        ConnectionAction {
-            style: root.style;
-            text: root.connected ? "Refresh" : "Connect";
-            enabled: !root.connecting && root.endpoint != "";
-            clicked => { root.connect(root.endpoint); }
+        if root.error != "": Text { text: root.error; color: root.style.palette.text; wrap: word-wrap; }
+        HorizontalBox {
+            padding: 0px;
+            vertical-stretch: 0;
+            spacing: root.style.spacing;
+            ConnectionAction { style: root.style; text: "Save"; enabled: root.draft-name != "" && root.draft-endpoint != ""; clicked => { root.save(root.profile-id, root.draft-name, root.draft-endpoint); } }
+            ConnectionAction { style: root.style; text: "Cancel"; clicked => { root.close(); } }
+
         }
-        ConnectionAction {
-            style: root.style;
-            text: "Disconnect";
-            enabled: root.connecting || root.connected;
-            clicked => { root.disconnect(); }
+        if root.profile-id != "": HorizontalBox {
+            padding: 0px;
+            vertical-stretch: 0;
+            spacing: root.style.spacing;
+            ConnectionAction { style: root.style; text: "Refresh"; clicked => { root.refresh(root.profile-id); } }
+            ConnectionAction { style: root.style; text: "Remove"; clicked => { root.remove(root.profile-id); } }
         }
     }
 }

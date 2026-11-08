@@ -14,13 +14,24 @@ its test commands.
 
 ## Server connection
 
-Enter an explicit `unix:/absolute/socket` or `tcp://NUMERIC_IPV4:PORT` endpoint,
-Connect, then select a running terminal from the returned catalog. `HOWL_SERVER`
-may prefill the field; it does not auto-connect. No sessions are silently created.
-Each entry binds the observed Server incarnation, Session and Instance IDs.
-Refresh re-reads the catalog and detaches the current view; select again explicitly.
-Disconnect/closing the app does **not** close the remote Session or its child.
-The app does not persist addresses, selection or credentials, or silently reconnect.
+Add named servers from the sidebar using `unix:/absolute/socket` or
+`tcp://NUMERIC_IPV4:PORT`. Editing uses one app-level form above the software
+keyboard. Each visible server shows its running sessions;
+selecting a session attaches the single terminal viewport. Refresh updates only
+that server's catalog. Hidden servers are not queried. Editing, hiding or removing
+a saved server does not redirect or terminate the current terminal.
+
+Profiles, visibility and an optional terminal font-size override are saved in
+`$XDG_CONFIG_HOME/howl-sessions/settings.json` (or `~/.config/howl-sessions/`)
+on desktop, and Android's app-private data directory on mobile. No credentials,
+active selection or live connection are persisted. Showing a server discovers its
+catalog; attaching a terminal always requires selection. No sessions are created.
+Each entry binds exact Server incarnation, Session and Instance IDs.
+
+The sidebar can be hidden with its header control and restored from the tab bar.
+Pinching the terminal previews its scale, then commits a crisp font size when the
+gesture ends. The logical size is bounded to 8–48 pixels; the theme owns the
+unsaved default. Saving failures are reported rather than silently discarded.
 
 Use a trusted Unix socket or an independently secured tunnel/network. The native
 TCP protocol does not add TLS or authentication. A Server incarnation ID prevents
@@ -33,7 +44,7 @@ Only the command attachment acquires resize leadership. Input is bounded; frame
 and resize mailboxes keep the newest value. Coalesced events wake the UI without
 a polling timer. Mobile owns no local PTY. Android
 Pause/Stop/Destroy requests detach rather than running an invisible terminal
-service; resuming requires an explicit connection and selection. Device lifecycle
+service; resuming requires explicit session selection. Device lifecycle
 was exercised on Note10: Home/background detaches; explicit reconnect and selection
 returns to the same remote shell.
 
@@ -55,7 +66,7 @@ returns to the same remote shell.
   Native framebuffer storage grows to actual frames rather than allocating the
   maximum on connection. This is not a performance claim.
 - Graphics-image snapshots are explicitly unsupported by this Render integration;
-  IME, full paste/mouse integration and automatic discovery are not implemented.
+  IME, full paste/mouse integration and network auto-discovery are not implemented.
 
 ## Performance checks
 

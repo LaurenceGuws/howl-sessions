@@ -1,0 +1,31 @@
+import { HorizontalBox } from "std-widgets.slint";
+import { Style } from "style.slint";
+
+export component ConnectionAction inherits Rectangle {
+    in property <Style> style;
+    in property <string> text;
+    in property <bool> enabled: true;
+    callback clicked();
+    horizontal-stretch: 0;
+    vertical-stretch: 1;
+    accessible-role: button;
+    accessible-label: root.text;
+    forward-focus: focus;
+    border-radius: root.style.radius;
+    border-width: root.style.stroke;
+    border-color: focus.has-focus ? root.style.palette.accent : root.style.palette.border;
+    background: !root.enabled ? transparent : touch.pressed ? root.style.palette.pressed : touch.has-hover ? root.style.palette.hover : root.style.palette.sidebar;
+    HorizontalBox {
+        padding: root.style.padding;
+        Text { text: root.text; color: root.enabled ? root.style.palette.text : root.style.palette.muted; vertical-alignment: center; }
+    }
+    focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return { root.clicked(); return accept; }
+            return reject;
+        }
+    }
+    touch := TouchArea { enabled: root.enabled; clicked => { focus.focus(); root.clicked(); } }
+}
+

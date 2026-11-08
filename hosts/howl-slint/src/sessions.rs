@@ -1,12 +1,14 @@
 //! Server owns the PTY. One command owner services input/geometry; one observer
 //! blocks for snapshots and renders. Both sleep on work, never a polling timer.
 use crate::{
-    App,
+    App, ServerProfile, SessionRow,
     input::{Key, key, resolve_font},
+    settings::Profile,
 };
 use slint::{ComponentHandle, Model, Rgba8Pixel, SharedPixelBuffer};
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
+    collections::HashMap,
     ffi::{CString, c_char, c_void},
     rc::Rc,
     sync::{
@@ -120,6 +122,11 @@ struct Entry {
     session: u64,
     instance: u64,
 }
+// Immutable selection snapshot: later profile edits cannot retarget live I/O.
+struct Target {
+    endpoint: CString,
+    entry: Entry,
+}
 #[derive(Clone)]
 struct Fonts {
     patterns: [String; 4],
@@ -135,17 +142,16 @@ fn raster_font_size(logical: f32, scale: f32) -> u16 {
 #[derive(Default)]
 struct Update {
     frame: Option<SharedPixelBuffer<Rgba8Pixel>>,
-    catalog: Option<Vec<Entry>>,
-    selected: Option<(usize, String)>,
+    selected: Option<String>,
     status: Option<String>,
     clear_frame: bool,
     finished: bool,
 }
 impl Update {
-    fn select(&mut self, index: usize, name: String) {
+    fn select(&mut self, name: String) {
         self.frame = None;
         self.clear_frame = true;
-        self.selected = Some((index, name));
+        self.selected = Some(name);
         self.status = Some("Attaching…".into());
     }
 }
@@ -206,22 +212,12 @@ impl View {
     }
 }
 fn apply_update(app: &App, update: Update) {
-    if let Some(catalog) = update.catalog {
-        app.set_sessions(slint::ModelRc::new(slint::VecModel::from(
-            catalog
-                .iter()
-                .map(|e| slint::SharedString::from(&e.name))
-                .collect::<Vec<_>>(),
-        )));
-        app.set_server_connecting(false);
-        app.set_server_connected(true);
-        app.set_connection_detail("Server connection".into());
-    }
     if update.clear_frame {
         app.set_terminal_frame(slint::Image::default());
     }
-    if let Some((index, title)) = update.selected {
-        app.set_selected_index(index as i32);
+    if let Some(title) = update.selected {
+        app.set_server_connecting(false);
+        app.set_server_connected(true);
         app.set_selected_title(title.into());
         app.set_terminal_enabled(true);
     }
@@ -235,10 +231,6 @@ fn apply_update(app: &App, update: Update) {
         app.set_server_connecting(false);
         app.set_server_connected(false);
         app.set_terminal_enabled(false);
-        app.set_selected_index(-1);
-        app.set_sessions(slint::ModelRc::new(slint::VecModel::from(Vec::<
-            slint::SharedString,
-        >::new())));
         app.set_connection_detail("Disconnected".into());
     }
 }
@@ -253,7 +245,7 @@ struct Pending {
     ended: Option<Result<(), String>>,
 }
 enum Command {
-    Select(usize),
+    Rebuild,
     Key(Key),
     Wake,
     Stop,
@@ -344,45 +336,279 @@ impl Drop for Connection {
         }
     }
 }
+// Catalogs are short-lived discoveries, not terminal connections. Sixteen saved
+// profiles bound concurrent discovery, native handles and queued completions.
+struct Catalog {
+    profile: Profile,
+    generation: u64,
+    entries: Vec<Entry>,
+    status: String,
+}
+struct Discovery {
+    interrupt: Arc<Interrupt>,
+    worker: Option<JoinHandle<()>>,
+}
+impl Drop for Discovery {
+    fn drop(&mut self) {
+        self.interrupt.cancel();
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+struct Catalogs {
+    app: slint::Weak<App>,
+    rows: Arc<Mutex<Vec<Catalog>>>,
+    jobs: RefCell<HashMap<u32, Discovery>>,
+    generation: Cell<u64>,
+}
+impl Catalogs {
+    fn refresh(&self, id: u32) {
+        self.jobs.borrow_mut().remove(&id);
+        let generation = self
+            .generation
+            .get()
+            .checked_add(1)
+            .expect("catalog generation exhausted");
+        self.generation.set(generation);
+        let endpoint = {
+            let mut rows = self.rows.lock().unwrap();
+            let Some(row) = rows
+                .iter_mut()
+                .find(|row| row.profile.id == id && row.profile.visible)
+            else {
+                return;
+            };
+            row.generation = generation;
+            row.status = "Connecting…".into();
+            row.entries.clear();
+            CString::new(row.profile.endpoint.clone())
+        };
+        let result = endpoint
+            .map_err(|_| "Invalid endpoint".to_string())
+            .and_then(|endpoint| Interrupt::new().map(|interrupt| (endpoint, Arc::new(interrupt))));
+        let (endpoint, interrupt) = match result {
+            Ok(value) => value,
+            Err(error) => {
+                accept_catalog(&mut self.rows.lock().unwrap(), id, generation, Err(error));
+                self.publish();
+                return;
+            }
+        };
+        self.publish();
+        let rows = self.rows.clone();
+        let app = self.app.clone();
+        let owner = interrupt.clone();
+        let worker = thread::spawn(move || {
+            let result = catalog(&endpoint, &owner);
+            if !accept_catalog(&mut rows.lock().unwrap(), id, generation, result) {
+                return;
+            }
+            let _ =
+                app.upgrade_in_event_loop(move |app| publish_catalogs(&app, &rows.lock().unwrap()));
+        });
+        self.jobs.borrow_mut().insert(
+            id,
+            Discovery {
+                interrupt,
+                worker: Some(worker),
+            },
+        );
+    }
+    fn publish(&self) {
+        if let Some(app) = self.app.upgrade() {
+            publish_catalogs(&app, &self.rows.lock().unwrap());
+        }
+    }
+    fn synchronize(&self, profiles: &[Profile]) {
+        if profiles.len() > 16 {
+            return;
+        } // Settings validates this bound too.
+        let cancelled = {
+            let rows = self.rows.lock().unwrap();
+            rows.iter()
+                .filter(|row| {
+                    !profiles.iter().any(|profile| {
+                        profile.id == row.profile.id
+                            && profile.endpoint == row.profile.endpoint
+                            && profile.visible == row.profile.visible
+                    })
+                })
+                .map(|row| row.profile.id)
+                .collect::<Vec<_>>()
+        };
+        // Never join under the result lock: a cancelled discovery may be
+        // completing its final result. Unchanged discoveries keep running.
+        for id in cancelled {
+            self.jobs.borrow_mut().remove(&id);
+        }
+        // Keep the same lock throughout replacement. An unchanged completion
+        // must see either complete old rows or complete new rows, never a gap.
+        let refresh = replace_profiles(&mut self.rows.lock().unwrap(), profiles);
+        self.publish();
+        for id in refresh {
+            self.refresh(id);
+        }
+    }
+}
+fn replace_profiles(rows: &mut Vec<Catalog>, profiles: &[Profile]) -> Vec<u32> {
+    let mut old = std::mem::take(rows);
+    let mut refresh = Vec::new();
+    for profile in profiles {
+        let previous = old
+            .iter()
+            .position(|row| row.profile.id == profile.id)
+            .map(|i| old.remove(i));
+        if let Some(mut row) = previous.filter(|row| {
+            row.profile.endpoint == profile.endpoint && row.profile.visible == profile.visible
+        }) {
+            row.profile = profile.clone();
+            rows.push(row);
+        } else {
+            rows.push(Catalog {
+                profile: profile.clone(),
+                generation: 0,
+                entries: Vec::new(),
+                status: String::new(),
+            });
+            if profile.visible {
+                refresh.push(profile.id);
+            }
+        }
+    }
+    refresh
+}
+fn accept_catalog(
+    rows: &mut [Catalog],
+    id: u32,
+    generation: u64,
+    result: Result<Vec<Entry>, String>,
+) -> bool {
+    let Some(row) = rows
+        .iter_mut()
+        .find(|row| row.profile.id == id && row.profile.visible && row.generation == generation)
+    else {
+        return false;
+    };
+    match result {
+        Ok(entries) => {
+            row.status = if entries.is_empty() {
+                "No running sessions".into()
+            } else {
+                format!("{} sessions", entries.len())
+            };
+            row.entries = entries;
+        }
+        Err(error) => {
+            row.status = error;
+            row.entries.clear();
+        }
+    }
+    true
+}
+fn publish_catalogs(app: &App, rows: &[Catalog]) {
+    app.set_servers(slint::ModelRc::new(slint::VecModel::from(
+        rows.iter()
+            .map(|row| ServerProfile {
+                id: row.profile.id.to_string().into(),
+                name: row.profile.name.clone().into(),
+                endpoint: row.profile.endpoint.clone().into(),
+                visible: row.profile.visible,
+                status: row.status.clone().into(),
+                sessions: slint::ModelRc::new(slint::VecModel::from(
+                    row.entries
+                        .iter()
+                        .map(|entry| SessionRow {
+                            server_id: entry.server.to_string().into(),
+                            session_id: entry.session.to_string().into(),
+                            instance_id: entry.instance.to_string().into(),
+                            title: entry.name.clone().into(),
+                        })
+                        .collect::<Vec<_>>(),
+                )),
+            })
+            .collect::<Vec<_>>(),
+    )));
+}
 pub struct Sessions {
     connection: Rc<RefCell<Option<Connection>>>,
+    catalogs: Rc<Catalogs>,
 }
 impl Drop for Sessions {
     fn drop(&mut self) {
         self.connection.borrow_mut().take();
+        self.catalogs.jobs.borrow_mut().clear();
     }
 }
 impl Sessions {
+    pub fn refresh_profiles(&self, profiles: &[Profile]) {
+        self.catalogs.synchronize(profiles);
+    }
     pub fn attach(app: &App) -> Self {
         let connection = Rc::new(RefCell::new(None::<Connection>));
-        app.set_selected_index(-1);
-        app.set_selected_title("No session selected".into());
-        app.set_terminal_status("Connect to a Server, then choose a session".into());
-        app.set_connection_detail("Disconnected".into());
-        if let Ok(endpoint) = std::env::var("HOWL_SERVER") {
-            app.set_server_endpoint(endpoint.into());
-        }
+        let catalogs = Rc::new(Catalogs {
+            app: app.as_weak(),
+            rows: Arc::new(Mutex::new(Vec::new())),
+            jobs: RefCell::new(HashMap::new()),
+            generation: Cell::new(0),
+        });
+        reset_view(app);
+        app.set_terminal_status("Show a Server, then choose a session".into());
+        let owner = catalogs.clone();
+        app.on_refresh_server(move |id| {
+            if let Ok(id) = id.parse() {
+                owner.refresh(id);
+            }
+        });
         let slot = connection.clone();
+        let rows = catalogs.rows.clone();
         let weak = app.as_weak();
-        app.on_connect_server(move |endpoint| {
-            let Some(app) = weak.upgrade() else {
+        app.on_select_instance(move |profile_id, server_id, session_id, instance_id| {
+            let Some(app) = weak.upgrade() else { return };
+            let (Ok(id), Ok(server), Ok(session), Ok(instance)) = (
+                profile_id.parse::<u32>(),
+                server_id.parse::<u64>(),
+                session_id.parse::<u64>(),
+                instance_id.parse::<u64>(),
+            ) else {
                 return;
             };
+            let target = {
+                let rows = rows.lock().unwrap();
+                rows.iter()
+                    .find(|row| row.profile.id == id && row.profile.visible)
+                    .and_then(|row| {
+                        row.entries
+                            .iter()
+                            .find(|entry| {
+                                entry.server == server
+                                    && entry.session == session
+                                    && entry.instance == instance
+                            })
+                            .map(|entry| {
+                                (
+                                    row.profile.endpoint.clone(),
+                                    row.profile.name.clone(),
+                                    entry.clone(),
+                                )
+                            })
+                    })
+            };
+            let Some((endpoint, profile_name, entry)) = target else {
+                return;
+            };
+            let Ok(endpoint) = CString::new(endpoint) else {
+                return;
+            };
+            // Profile mutations affect discovery only. This connection owns its
+            // exact endpoint and remote identities until explicit replacement.
             slot.borrow_mut().take();
             reset_view(&app);
-            let endpoint = match CString::new(endpoint.trim()) {
-                Ok(endpoint)
-                    if !endpoint.as_bytes().is_empty() && endpoint.as_bytes().len() <= 1024 =>
-                {
-                    endpoint
-                }
-                _ => {
-                    app.set_terminal_status(
-                        "Enter a valid Server endpoint (up to 1024 bytes)".into(),
-                    );
-                    return;
-                }
-            };
+            app.set_selected_profile_id(profile_id);
+            app.set_selected_server_id(server_id);
+            app.set_selected_session_id(session_id);
+            app.set_selected_instance_id(instance_id);
+            app.set_connection_detail(profile_name.into());
             let interrupt = match Interrupt::new() {
                 Ok(value) => Arc::new(value),
                 Err(error) => {
@@ -404,7 +630,7 @@ impl Sessions {
                     .iter()
                     .map(|v| v.to_string())
                     .collect(),
-                size: raster_font_size(style.terminal_font_size, app.window().scale_factor()),
+                size: raster_font_size(app.get_terminal_font_size(), app.window().scale_factor()),
             };
             let view = View {
                 app: app.as_weak(),
@@ -424,8 +650,17 @@ impl Sessions {
             let wake = sender.clone();
             app.set_server_connecting(true);
             app.set_terminal_status("Connecting…".into());
-            let worker =
-                thread::spawn(move || run(endpoint, owner, receiver, wake, facts, updates, fonts));
+            let worker = thread::spawn(move || {
+                run(
+                    Target { endpoint, entry },
+                    owner,
+                    receiver,
+                    wake,
+                    facts,
+                    updates,
+                    fonts,
+                )
+            });
             *slot.borrow_mut() = Some(Connection {
                 cancellation,
                 sender,
@@ -441,13 +676,6 @@ impl Sessions {
             if let Some(app) = weak.upgrade() {
                 reset_view(&app);
                 app.set_terminal_status("Disconnected; Server sessions are unchanged".into());
-            }
-        });
-        let slot = connection.clone();
-        let weak = app.as_weak();
-        app.on_select_session(move |index| {
-            if let Ok(index) = usize::try_from(index) {
-                send(&slot, Command::Select(index), &weak);
             }
         });
         let slot = connection.clone();
@@ -468,7 +696,10 @@ impl Sessions {
                 let _ = connection.sender.try_send(Command::Wake);
             }
         });
-        Self { connection }
+        Self {
+            connection,
+            catalogs,
+        }
     }
 }
 fn reset_view(app: &App) {
@@ -476,13 +707,14 @@ fn reset_view(app: &App) {
     app.set_server_connecting(false);
     app.set_terminal_enabled(false);
     app.set_terminal_frame(slint::Image::default());
-    app.set_selected_index(-1);
+    app.set_selected_profile_id("".into());
+    app.set_selected_server_id("".into());
+    app.set_selected_session_id("".into());
+    app.set_selected_instance_id("".into());
     app.set_selected_title("No session selected".into());
-    app.set_sessions(slint::ModelRc::new(slint::VecModel::from(Vec::<
-        slint::SharedString,
-    >::new())));
     app.set_connection_detail("Disconnected".into());
 }
+
 fn send(slot: &RefCell<Option<Connection>>, command: Command, weak: &slint::Weak<App>) {
     if let Some(connection) = slot.borrow().as_ref()
         && let Err(error) = connection.sender.try_send(command)
@@ -544,7 +776,7 @@ fn catalog(endpoint: &CString, interrupt: &Interrupt) -> Result<Vec<Entry>, Stri
     Ok(entries)
 }
 fn run(
-    endpoint: CString,
+    target: Target,
     cancellation: Arc<Cancellation>,
     receiver: Receiver<Command>,
     sender: SyncSender<Command>,
@@ -552,31 +784,19 @@ fn run(
     view: View,
     mut fonts: Fonts,
 ) {
+    let Target { endpoint, entry } = target;
     let result = (|| -> Result<(), String> {
-        let entries = catalog(&endpoint, &cancellation.commands)?;
-        view.publish(|update| {
-            update.catalog = Some(entries.clone());
-            update.status = Some(
-                if entries.is_empty() {
-                    "Server has no terminal instances"
-                } else {
-                    "Choose a session to attach"
-                }
-                .into(),
-            );
-        });
         let mut observer = None::<Observer>;
         let mut actions = None::<Actions>;
         let mut last_size = None;
         let mut cell = None;
         // DPI changes replace only the observer/font owner. The action lane
         // and remote shell remain alive; a normal resize publishes new geometry.
-        let mut selected = None;
-        let mut rebuild = false;
+        let mut rebuild = true;
         loop {
             let command = if rebuild {
                 rebuild = false;
-                Command::Select(selected.expect("font rebuild requires a selection"))
+                Command::Rebuild
             } else {
                 let Ok(command) = receiver.recv() else { break };
                 command
@@ -586,16 +806,10 @@ fn run(
             }
             match command {
                 Command::Stop => break,
-                Command::Select(index) if index < entries.len() => {
-                    let entry = &entries[index];
-                    // Join before clearing pending updates. Nothing from the old
-                    // selection can repopulate this mailbox after this point.
+                Command::Rebuild => {
+                    // Join the old renderer before a font/DPI rebuild. The exact
+                    // selected target and action connection remain unchanged.
                     observer.take();
-                    let same_selection = selected == Some(index);
-                    selected = Some(index);
-                    if !same_selection {
-                        actions.take();
-                    }
                     cancellation.observer.lock().unwrap().take();
                     {
                         let mut facts = pending.lock().unwrap();
@@ -603,7 +817,7 @@ fn run(
                         facts.ended = None;
                     }
                     cell = None;
-                    view.publish(|update| update.select(index, entry.name.clone()));
+                    view.publish(|update| update.select(entry.name.clone()));
                     if actions.is_none() {
                         let mut raw = std::ptr::null_mut();
                         check(unsafe {
@@ -662,7 +876,7 @@ fn run(
                         })?;
                     }
                 }
-                Command::Wake | Command::Select(_) => {}
+                Command::Wake => {}
             }
             let (size, font_pixels, ready, ended) = {
                 let mut facts = pending.lock().unwrap();
@@ -677,7 +891,7 @@ fn run(
                 && pixels != fonts.size
             {
                 fonts.size = pixels;
-                rebuild = selected.is_some();
+                rebuild = true;
             }
             let resized = size.is_some() || ready.is_some();
             if let Some(size) = size {
@@ -845,6 +1059,85 @@ fn changed_frame(
 mod tests {
     use super::*;
 
+    fn profile(id: u32, visible: bool) -> Profile {
+        Profile {
+            id,
+            name: format!("Server {id}"),
+            endpoint: "tcp://127.0.0.1:43180".into(),
+            visible,
+        }
+    }
+    fn entry(server: u64) -> Entry {
+        Entry {
+            name: "shell".into(),
+            server,
+            session: 1,
+            instance: 1,
+        }
+    }
+    #[test]
+    fn unchanged_discovery_completion_survives_profile_replacement_in_either_order() {
+        for complete_before in [true, false] {
+            let mut rows = vec![Catalog {
+                profile: profile(7, true),
+                generation: 4,
+                entries: vec![],
+                status: "Connecting…".into(),
+            }];
+            if complete_before {
+                assert!(accept_catalog(&mut rows, 7, 4, Ok(vec![entry(9)])));
+            }
+            let mut renamed = profile(7, true);
+            renamed.name = "Renamed".into();
+            assert!(replace_profiles(&mut rows, &[renamed]).is_empty());
+            if !complete_before {
+                assert!(accept_catalog(&mut rows, 7, 4, Ok(vec![entry(9)])));
+            }
+            assert_eq!(rows[0].entries[0].server, 9);
+            assert_eq!(rows[0].profile.name, "Renamed");
+            assert_ne!(rows[0].status, "Connecting…");
+        }
+    }
+
+    #[test]
+    fn catalog_completion_requires_exact_visible_profile_generation() {
+        let mut rows = vec![Catalog {
+            profile: profile(7, true),
+            generation: 3,
+            entries: vec![],
+            status: String::new(),
+        }];
+        assert!(!accept_catalog(&mut rows, 8, 3, Ok(vec![entry(9)])));
+        assert!(!accept_catalog(&mut rows, 7, 2, Ok(vec![entry(9)])));
+        assert!(accept_catalog(&mut rows, 7, 3, Ok(vec![entry(u64::MAX)])));
+        assert_eq!(rows[0].entries[0].server, u64::MAX);
+        rows[0].profile.visible = false;
+        assert!(!accept_catalog(&mut rows, 7, 3, Err("late failure".into())));
+        assert_eq!(rows[0].entries.len(), 1);
+        rows.clear();
+        assert!(!accept_catalog(&mut rows, 7, 3, Ok(vec![entry(9)])));
+    }
+    #[test]
+    fn one_catalog_failure_cannot_clear_another_server() {
+        let mut rows = vec![
+            Catalog {
+                profile: profile(1, true),
+                generation: 1,
+                entries: vec![entry(10)],
+                status: String::new(),
+            },
+            Catalog {
+                profile: profile(2, true),
+                generation: 2,
+                entries: vec![entry(20)],
+                status: String::new(),
+            },
+        ];
+        assert!(accept_catalog(&mut rows, 1, 1, Err("unavailable".into())));
+        assert!(rows[0].entries.is_empty());
+        assert_eq!(rows[1].entries[0].server, 20);
+    }
+
     #[test]
     fn first_geometry_wait_is_released_by_ack_or_cancellation() {
         for ready in [true, false] {
@@ -904,7 +1197,7 @@ mod tests {
         let mut mailbox = Mailbox::default();
         assert!(mailbox.publish(|update| {
             update.frame = Some(SharedPixelBuffer::new(2, 2));
-            update.selected = Some((0, "old session".into()));
+            update.selected = Some("old session".into());
         }));
         assert!(mailbox.take(false).is_none());
         assert!(!mailbox.queued);
@@ -917,11 +1210,11 @@ mod tests {
         let mut mailbox = Mailbox::default();
         assert!(mailbox.publish(|update| update.frame = Some(SharedPixelBuffer::new(2, 2))));
         // Production calls select only after cancelling/joining the old producer.
-        assert!(!mailbox.publish(|update| update.select(1, "new session".into())));
+        assert!(!mailbox.publish(|update| update.select("new session".into())));
         let update = mailbox.take(true).unwrap();
         assert!(update.frame.is_none());
         assert!(update.clear_frame);
-        assert_eq!(update.selected, Some((1, "new session".into())));
+        assert_eq!(update.selected, Some("new session".into()));
     }
 
     #[test]
@@ -973,6 +1266,190 @@ mod tests {
         assert_eq!(frame.width(), 8);
         assert_eq!(frame.height(), 6);
         assert!(frame.as_bytes().iter().all(|&byte| byte == 23));
+    }
+
+    // Supply two distinct live Servers containing a disposable, idle shell named
+    // multi-server-qualification. This exercises the actual App callbacks and
+    // native owners without requiring a visible window or touching saved profiles.
+    #[test]
+    #[ignore = "requires HOWL_TEST_SERVER_A/B and a headless Slint backend"]
+    fn live_multi_server_catalog_and_active_ownership() {
+        use std::time::{Duration, Instant};
+        fn wait(mut ready: impl FnMut() -> bool) {
+            let start = Instant::now();
+            while !ready() {
+                assert!(
+                    start.elapsed() < Duration::from_secs(8),
+                    "live owner did not settle"
+                );
+                thread::sleep(Duration::from_millis(10));
+            }
+        }
+        let app = App::new().unwrap();
+        let sessions = Sessions::attach(&app);
+        let mut profiles = vec![
+            Profile {
+                id: 1,
+                name: "A".into(),
+                endpoint: std::env::var("HOWL_TEST_SERVER_A").unwrap(),
+                visible: true,
+            },
+            Profile {
+                id: 2,
+                name: "B".into(),
+                endpoint: std::env::var("HOWL_TEST_SERVER_B").unwrap(),
+                visible: true,
+            },
+        ];
+        let endpoints: Vec<_> = profiles.iter().map(|p| p.endpoint.clone()).collect();
+        sessions.refresh_profiles(&profiles);
+        wait(|| {
+            sessions
+                .catalogs
+                .rows
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|r| !r.entries.is_empty())
+        });
+        let entries: Vec<Entry> = sessions
+            .catalogs
+            .rows
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|r| {
+                r.entries
+                    .iter()
+                    .find(|e| e.name.contains("multi-server-qualification"))
+                    .unwrap()
+                    .clone()
+            })
+            .collect();
+        assert_ne!(entries[0].server, entries[1].server);
+        println!(
+            "live Servers: {} and {}",
+            entries[0].server, entries[1].server
+        );
+        let select = |profile: u32, e: &Entry| {
+            app.invoke_select_instance(
+                profile.to_string().into(),
+                e.server.to_string().into(),
+                e.session.to_string().into(),
+                e.instance.to_string().into(),
+            );
+            app.invoke_terminal_resize(640, 400, 18);
+            wait(|| {
+                sessions
+                    .connection
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(|c| c.view.mailbox.lock().unwrap().update.frame.is_some())
+            });
+            assert_eq!(app.get_selected_server_id().as_str(), e.server.to_string());
+            assert_eq!(
+                app.get_selected_session_id().as_str(),
+                e.session.to_string()
+            );
+        };
+        select(1, &entries[0]);
+        select(2, &entries[1]);
+        let active = sessions
+            .connection
+            .borrow()
+            .as_ref()
+            .unwrap()
+            .view
+            .active
+            .clone();
+        let same_owner = || {
+            let connection = sessions.connection.borrow();
+            let c = connection
+                .as_ref()
+                .expect("catalog mutation dropped active terminal");
+            assert!(Arc::ptr_eq(&active, &c.view.active));
+            assert!(active.load(Ordering::Acquire));
+            assert!(!c.worker.as_ref().unwrap().is_finished());
+        };
+
+        // Wrong Server identity cannot select a same-number Session elsewhere.
+        app.invoke_select_instance(
+            "1".into(),
+            entries[1].server.to_string().into(),
+            entries[0].session.to_string().into(),
+            entries[0].instance.to_string().into(),
+        );
+        same_owner();
+        profiles[1].visible = false;
+        sessions.refresh_profiles(&profiles);
+        same_owner();
+        profiles[1].endpoint = "unix:/nonexistent/howl-test-missing.sock".into();
+        profiles[1].visible = true;
+        sessions.refresh_profiles(&profiles);
+        wait(|| sessions.catalogs.rows.lock().unwrap()[1].status != "Connecting…");
+        same_owner();
+        assert!(!sessions.catalogs.rows.lock().unwrap()[0].entries.is_empty());
+        assert!(sessions.catalogs.rows.lock().unwrap()[1].entries.is_empty());
+        profiles.remove(1);
+        sessions.refresh_profiles(&profiles);
+        same_owner();
+        {
+            let mut rows = sessions.catalogs.rows.lock().unwrap();
+            let generation = rows[0].generation;
+            assert!(!accept_catalog(
+                &mut rows,
+                1,
+                generation + 1,
+                Err("stale".into())
+            ));
+            assert!(!rows[0].entries.is_empty());
+        }
+        // A fresh geometry observation proves the preserved owner still does
+        // real I/O/rendering after hide, endpoint edit, failure and deletion.
+        sessions
+            .connection
+            .borrow()
+            .as_ref()
+            .unwrap()
+            .view
+            .mailbox
+            .lock()
+            .unwrap()
+            .update
+            .frame = None;
+        app.invoke_terminal_resize(720, 420, 18);
+        wait(|| {
+            sessions
+                .connection
+                .borrow()
+                .as_ref()
+                .unwrap()
+                .view
+                .mailbox
+                .lock()
+                .unwrap()
+                .update
+                .frame
+                .is_some()
+        });
+        same_owner();
+        app.invoke_disconnect_server();
+        assert!(sessions.connection.borrow().is_none());
+        for (endpoint, expected) in endpoints.iter().zip(entries.iter()) {
+            let found = catalog(
+                &CString::new(endpoint.as_str()).unwrap(),
+                &Interrupt::new().unwrap(),
+            )
+            .unwrap();
+            assert!(
+                found
+                    .iter()
+                    .any(|e| e.server == expected.server && e.session == expected.session)
+            );
+        }
+        println!(
+            "PASS: independent real catalogs; exact selection; hide/edit/remove/failure preserve active native rendering; disconnect preserves remote session"
+        );
     }
 
     // Isolates the host handoff, not rendering or end-to-end terminal latency.

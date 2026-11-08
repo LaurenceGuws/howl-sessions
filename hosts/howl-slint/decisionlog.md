@@ -55,7 +55,7 @@ Disconnect first invalidates queued UI work and cancels both I/O lanes, then joi
 owners before releasing their interrupt handles. There is no periodic host timer.
 
 The C adapter paints canonical Render commands to CPU RGBA for Slint. Howl owns
-shaping and terminal semantics. Current limits include 2048-pixel sides, 160×80
+shaping and terminal semantics. Current limits include 4096-pixel sides, 16 million pixels and a 160×80
 grid. Observations use the last Server delivery revision, not Render's narrower
 content revision. Current Render is untimed: timed cursor blinking remains an
 explicit future presentation contract, not something this host silently disables.
@@ -220,3 +220,67 @@ submission. An independent ping over the configured mesh route also reached
 277 ms RTT. TCP and Unix-over-SSH native probes both retained large observation
 waits. Do not attribute those upstream stalls to compositor CPU or claim this
 fill change eliminates jank. No TCP/VPN/firewall settings were changed.
+
+The same optimized native client against a Note10-local Server produced 361–362
+observations in two 12-second Rain runs, with no >100 ms waits and maxima of
+34–36 ms. Direct LAN SSH still showed long tails like Mesh. This isolates the
+large waits to the networked path; it does not establish a specific Wi-Fi,
+power-saving or SSH defect, nor qualify Slint's local displayed frame rate.
+
+A subsequent actual Android buffer trace with a local Server sustained essentially
+60 Hz for Rain and dense Cells at 61×13 cells (2318×962 physical pixels): 720
+producer frames in 12 seconds, no skipped source slots, presentation p95 about
+17 ms and maximum about 33 ms. This qualifies that workload and viewport, not a
+universal 60 Hz claim. At 80×24 cells (3040×1776), native dense Cells painting
+exceeded the 16.7 ms budget. Repeated runs changed substantially, including a
+slower immediate local control; do not attribute that variation solely to the
+network or assert thermal throttling without stronger evidence.
+
+After the user-approved 5 GHz switch, a networked Android Rain run with a
+60 fps producer presented about 43 buffers/s, p95 gap 34 ms and maximum 84 ms.
+Its grid was 56×13, smaller than the local run. This improves on earlier long
+stalls but is still not local 60 Hz; it does not prove roaming, power saving or
+any particular transport defect. Keep source, network observation and actual
+presentation measurements separate.
+
+## Saved servers and one active terminal
+
+Server navigation belongs in the sidebar, not above the terminal. Configuration
+opens one app-level centered form, constrained by the reported software-keyboard
+rectangle. It does not compete with the narrow sidebar or hide behind the IME.
+Note10 landscape qualification covered both focused fields and visible actions,
+Cancel/Save keyboard dismissal and unchanged profile preservation. Portrait
+keyboard layout has not yet been exercised.
+Named profiles have stable local IDs, explicit visibility and independent bounded
+catalog discovery. At most 16 profiles are saved. Discovery is cancellable and
+runs when a profile is shown, its endpoint changes, or refresh is requested;
+there is no background polling. Catalog results carry a generation so late
+responses cannot restore removed or changed entries.
+
+The single active terminal owns an immutable endpoint and exact remote
+Server/Session/Instance identity. Hiding, editing or removing a profile changes
+catalog visibility/configuration only; it never redirects that connection or
+stops a remote job. Selecting another session or the tab's Detach action ends
+only the attachment. Catalog failures are independent of the active terminal.
+
+Profiles/visibility and an optional font-size override are private local settings,
+not credentials or saved live connections. The theme remains the default font
+source. Writes are bounded, validated and atomically replaced; malformed existing
+files are not silently overwritten. Desktop uses XDG config, Android its private
+application data directory. The former unsaved HOWL_SERVER field shortcut is
+removed with that field; saved profiles are the configuration surface.
+
+Pinch previews a clipped scaled frame while fingers move, then commits a bounded
+logical font size on release so Howl re-rasterizes sharply. Cancellation restores
+the prior view. This avoids rebuilding the font owner on every pointer update.
+Actual multi-touch acceptance remains a device check, distinct from compiling
+Slint's documented touchscreen gesture handler.
+
+Qualified with two real Server instances through App callbacks: exact selection
+and rendering, stale-incarnation refusal, independent failed catalogs, and
+hide/edit/remove preserving the active owner through a subsequent resize/frame.
+The reproducible live test is explicitly ignored by ordinary unit runs and uses
+caller-provided isolated fixtures. Android subsequently saved a profile through the real form, reloaded it after
+force-stop/relaunch, rendered the retained remote shell and hid/restored the
+sidebar. Real pinch acceptance remains pending a finger check; synthetic
+single-pointer input does not establish multi-touch support.

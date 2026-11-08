@@ -1,170 +1,102 @@
-import { IconSet, IconDisplay } from "@lucide";
-import { VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { IconSet } from "@lucide";
+import { VerticalBox, HorizontalBox, ScrollView } from "std-widgets.slint";
 import { IconButton } from "icon-button.slint";
+import { ServerProfile } from "server-connection.slint";
 import { Style } from "style.slint";
 
 export component SessionList inherits Rectangle {
     in property <Style> style;
+    in property <[ServerProfile]> servers;
+    in property <string> settings-error;
+    in property <string> selected-profile-id;
+    in property <string> selected-server-id;
+    in property <string> selected-session-id;
+    in property <string> selected-instance-id;
     in property <string> detail;
-    in property <[string]> sessions;
-    in property <int> selected-index;
-    out property <length> content-minimum: content.min-width;
+    out property <length> content-minimum: header.min-width;
     in-out property <length> retained-width: 0px;
     callback toggle-sessions();
-    callback select-session(int);
-
+    callback edit-server(string, string, string);
+    callback toggle-server(string);
+    callback refresh-server(string);
+    callback select-instance(string, string, string, string);
     horizontal-stretch: 0;
-    preferred-width: root.retained-width > 0px ? max(content.min-width, root.retained-width) : content.preferred-width;
+    preferred-width: root.retained-width > 0px ? max(root.content-minimum, root.retained-width) : max(root.content-minimum, 18rem);
     background: root.style.palette.sidebar;
-    content := VerticalBox {
+    VerticalBox {
         padding: 0px;
         spacing: 0px;
-        HorizontalBox {
+        header := HorizontalBox {
             vertical-stretch: 0;
             padding: root.style.spacing;
             spacing: root.style.spacing;
             HorizontalBox {
                 padding: root.style.padding;
-                horizontal-stretch: 1;
-                Text {
-                    text: "Howl";
-                    font-weight: root.style.emphasis;
-                    color: root.style.palette.text;
-                    horizontal-stretch: 1;
-                    vertical-alignment: center;
-                }
+                Text { text: "Howl"; font-weight: root.style.emphasis; color: root.style.palette.text; vertical-alignment: center; }
+                Rectangle { horizontal-stretch: 1; }
             }
-            session-options-button := IconButton {
-                style: root.style;
-                icon: IconSet.Ellipsis;
-                label: "Session options";
-                clicked => { session-options.show(); }
-            }
-            IconButton {
-                style: root.style;
-                icon: IconSet.ChevronsLeft;
-                label: "Hide sessions";
-                clicked => { root.toggle-sessions(); }
-            }
+            IconButton { style: root.style; icon: IconSet.ChevronsLeft; label: "Hide sessions"; clicked => { root.toggle-sessions(); } }
         }
-        VerticalBox {
-            padding: root.style.padding;
-            spacing: root.style.padding;
-            Text {
-                text: "Sessions";
-                font-size: 0.85rem;
-                color: root.style.palette.muted;
-            }
-            for session[index] in root.sessions: Rectangle {
-                vertical-stretch: 0;
-                border-radius: root.style.radius;
-                border-width: root.style.stroke;
-                accessible-role: button;
-                accessible-label: session;
-                forward-focus: row-focus;
-                // Selection persists; focus is a separate navigation cue.
-                border-color: row-focus.has-focus ? root.style.palette.accent : root.selected-index == index ? root.style.palette.selection-border : row-input.has-hover ? root.style.palette.border : transparent;
-                background: row-input.pressed ? root.style.palette.pressed : root.selected-index == index ? (row-input.has-hover ? root.style.palette.selected-hover : root.style.palette.selected) : row-input.has-hover ? root.style.palette.hover : transparent;
-                HorizontalBox {
-                    padding: root.style.padding;
-                    spacing: root.style.padding;
-                    Text {
-                        text: ">_";
-                        font-family: "monospace";
-                        color: root.selected-index == index ? root.style.palette.accent : root.style.palette.muted;
-                    }
-                    Text {
-                        text: session;
-                        color: root.selected-index == index ? root.style.palette.text : root.style.palette.secondary;
-                        horizontal-stretch: 1;
-                    }
-                }
-                row-focus := FocusScope {
-                    key-pressed(event) => {
-                        if event.text == Key.Space || event.text == Key.Return {
-                            root.select-session(index);
-                            return accept;
-                        }
-                        return reject;
-                    }
-                }
-                row-input := TouchArea { clicked => { row-focus.focus(); root.select-session(index); } }
-            }
-            Rectangle { vertical-stretch: 1; }
-        }
-    }
-    session-options := PopupWindow {
-        x: session-options-button.x;
-        y: session-options-button.y + session-options-button.height + root.style.spacing;
-        close-policy: close-on-click-outside;
-        Rectangle {
-            background: root.style.palette.chrome;
-            border-radius: root.style.radius;
-            border-width: root.style.stroke;
-            border-color: root.style.palette.border;
+        ScrollView {
+            horizontal-stretch: 1;
             VerticalBox {
                 padding: root.style.padding;
-                spacing: root.style.spacing;
+                spacing: root.style.padding;
                 HorizontalBox {
-                    padding: root.style.padding;
-                    Text {
-                        text: "Session options";
-                        font-weight: root.style.emphasis;
-                        color: root.style.palette.secondary;
-                    }
-                }
-                hide-sessions := Rectangle {
-                    init => { menu-focus.focus(); }
+                    padding: 0px;
                     vertical-stretch: 0;
-                    border-radius: root.style.radius;
-                    border-width: root.style.stroke;
-                    border-color: menu-focus.has-focus ? root.style.palette.accent : transparent;
-                    background: menu-input.pressed ? root.style.palette.pressed : menu-input.has-hover ? root.style.palette.hover : transparent;
-                    accessible-role: button;
-                    accessible-label: "Hide sessions";
-                    forward-focus: menu-focus;
+                    Text { text: "Servers"; font-size: 0.85rem; color: root.style.palette.muted; vertical-alignment: center; }
+                    Rectangle { horizontal-stretch: 1; }
+                    IconButton { style: root.style; icon: IconSet.Plus; label: "Add server"; clicked => { root.edit-server("", "", ""); } }
+                }
+                if root.servers.length == 0: Text { text: "Add a server to find its sessions."; wrap: word-wrap; color: root.style.palette.muted; }
+                for server in root.servers: VerticalBox {
+                    vertical-stretch: 0;
+                    padding: 0px;
+                    spacing: root.style.spacing;
                     HorizontalBox {
-                        padding: root.style.padding;
-                        spacing: root.style.padding;
-                        Rectangle {
-                            width: 1rem;
-                            min-height: 1rem;
-                            IconDisplay {
-                                y: (parent.height - self.height) / 2;
-                                icon: IconSet.ChevronsLeft;
-                                size: 1rem;
-                                stroke: root.style.palette.secondary;
+                        padding: 0px;
+                        vertical-stretch: 0;
+                        spacing: root.style.spacing;
+                        IconButton { style: root.style; icon: server.visible ? IconSet.Eye : IconSet.EyeOff; label: server.visible ? "Hide server sessions" : "Show server sessions"; clicked => { root.toggle-server(server.id); } }
+                        Text { text: server.name; color: server.visible ? root.style.palette.text : root.style.palette.muted; font-weight: root.style.emphasis; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                        IconButton { style: root.style; icon: IconSet.Ellipsis; label: "Edit server"; clicked => { root.edit-server(server.id, server.name, server.endpoint); } }
+                    }
+                    if server.visible: VerticalBox {
+                        vertical-stretch: 0;
+                        padding-left: root.style.padding;
+                        padding-right: 0px;
+                        padding-top: 0px;
+                        padding-bottom: 0px;
+                        spacing: root.style.spacing;
+                        if server.status != "" && server.sessions.length == 0: Text { text: server.status; wrap: word-wrap; font-size: 0.85rem; color: root.style.palette.muted; }
+                        for session in server.sessions: Rectangle {
+                            private property <bool> selected: root.selected-profile-id == server.id && root.selected-server-id == session.server-id && root.selected-session-id == session.session-id && root.selected-instance-id == session.instance-id;
+                            vertical-stretch: 0;
+                            accessible-role: button;
+                            accessible-label: session.title;
+                            forward-focus: row-focus;
+                            border-radius: root.style.radius;
+                            border-width: root.style.stroke;
+                            border-color: row-focus.has-focus ? root.style.palette.accent : self.selected ? root.style.palette.selection-border : row-input.has-hover ? root.style.palette.border : transparent;
+                            background: row-input.pressed ? root.style.palette.pressed : self.selected ? (row-input.has-hover ? root.style.palette.selected-hover : root.style.palette.selected) : row-input.has-hover ? root.style.palette.hover : transparent;
+                            HorizontalBox {
+                                padding: root.style.padding;
+                                spacing: root.style.padding;
+                                Text { text: ">_"; font-family: "monospace"; color: root.style.palette.accent; }
+                                Text { text: session.title; color: root.style.palette.text; horizontal-stretch: 1; overflow: elide; }
                             }
-                        }
-                        Text { text: "Hide sessions"; color: root.style.palette.text; }
-                        Rectangle { horizontal-stretch: 1; }
-                    }
-                    menu-focus := FocusScope {
-                        key-pressed(event) => {
-                            if event.text == Key.Space || event.text == Key.Return {
-                                root.toggle-sessions(); session-options.close();
-                                return accept;
+                            row-focus := FocusScope {
+                                key-pressed(event) => {
+                                    if event.text == Key.Space || event.text == Key.Return { root.select-instance(server.id, session.server-id, session.session-id, session.instance-id); return accept; }
+                                    return reject;
+                                }
                             }
-                            if event.text == Key.Escape { session-options.close(); return accept; }
-                            return reject;
+                            row-input := TouchArea { clicked => { row-focus.focus(); root.select-instance(server.id, session.server-id, session.session-id, session.instance-id); } }
                         }
                     }
-                    menu-input := TouchArea {
-                        clicked => { root.toggle-sessions(); session-options.close(); }
-                    }
                 }
-                Rectangle {
-                    height: root.style.stroke;
-                    background: root.style.palette.border;
-                }
-                HorizontalBox {
-                    padding: root.style.padding;
-                    Text {
-                        text: root.detail;
-                        font-size: 0.85rem;
-                        color: root.style.palette.muted;
-                    }
-                }
+                Rectangle { vertical-stretch: 1; }
             }
         }
     }

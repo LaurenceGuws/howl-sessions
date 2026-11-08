@@ -8,6 +8,8 @@ export component TabBar inherits Rectangle {
     in property <string> selected-title;
     in property <bool> show-sessions;
     callback toggle-sessions();
+    in property <bool> terminal-enabled;
+    callback detach-terminal();
 
     vertical-stretch: 0;
     background: root.style.palette.terminal;
@@ -44,6 +46,12 @@ export component TabBar inherits Rectangle {
                     }
                     // Hover acknowledges the current tab; no fake click action or keyboard stop.
                     tab-hover := TouchArea { }
+                }
+                if root.terminal-enabled: IconButton {
+                    style: root.style;
+                    icon: IconSet.X;
+                    label: "Detach terminal";
+                    clicked => { root.detach-terminal(); }
                 }
                 Rectangle { horizontal-stretch: 1; }
 

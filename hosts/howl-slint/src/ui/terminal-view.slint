@@ -4,11 +4,14 @@ import { Style } from "style.slint";
 export component TerminalView inherits FocusScope {
     in property <Style> style;
     in property <image> frame;
+    in-out property <length> font-size: root.style.terminal-font-size;
     callback key(KeyEvent, bool);
+    callback font-size-committed(float);
+    private property <float> preview-scale: 1;
     callback resized(int, int, int);
     // Slint tracks physical-unit conversions when the window changes screens.
     private property <length> physical-pixel: 1phx;
-    private property <int> raster-font-size: max(1, round(root.style.terminal-font-size / root.physical-pixel));
+    private property <int> raster-font-size: max(1, round(root.font-size / root.physical-pixel));
     changed raster-font-size => { root.resized(self.width / 1phx, self.height / 1phx, self.raster-font-size); }
     vertical-stretch: 1;
     min-width: 0px;
@@ -20,11 +23,26 @@ export component TerminalView inherits FocusScope {
     key-pressed(event) => { root.key(event, false); return accept; }
     key-released(event) => { root.key(event, true); return accept; }
     Rectangle { background: root.style.palette.terminal; }
-    Image {
-        source: root.frame;
-        width: min(parent.width, self.source.width * 1phx);
-        height: min(parent.height, self.source.height * 1phx);
-        image-fit: contain;
+    Rectangle {
+        clip: true;
+        Image {
+            source: root.frame;
+            width: self.source.width * 1phx * root.preview-scale;
+            height: self.source.height * 1phx * root.preview-scale;
+            image-fit: contain;
+        }
     }
-    TouchArea { clicked => { root.focus(); } }
+    ScaleRotateGestureHandler {
+        private property <length> initial-size;
+        started => { self.initial-size = root.font-size; }
+        updated => { root.preview-scale = clamp(self.initial-size * self.scale / 1px, 8, 48) * 1px / self.initial-size; }
+        cancelled => { root.preview-scale = 1; }
+        // Commit once: a new font owner re-rasterizes the terminal, not a scaled bitmap.
+        ended => {
+            root.font-size = clamp(round(self.initial-size * self.scale / 1px), 8, 48) * 1px;
+            root.preview-scale = 1;
+            root.font-size-committed(root.font-size / 1px);
+        }
+        TouchArea { clicked => { root.focus(); } }
+    }
 }

@@ -1,6 +1,6 @@
-import { ServerConnection } from "server-connection.slint";
+import { ServerConnection, ServerProfile } from "server-connection.slint";
 import { TerminalView } from "terminal-view.slint";
-import { VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { VerticalBox, HorizontalBox, ScrollView } from "std-widgets.slint";
 import { Style, Theme } from "style.slint";
 import { SessionList } from "session-list.slint";
 import { TabBar } from "tab-bar.slint";
@@ -15,20 +15,32 @@ export component App inherits Window {
     preferred-height: 48rem;
     background: root.style.palette.background;
 
-    in property <[string]> sessions;
-    in property <int> selected-index: 0;
+    private property <bool> editing-server: false;
+    private property <string> editing-id;
+    private property <string> draft-name;
+    private property <string> draft-endpoint;
+    in property <[ServerProfile]> servers;
+    in property <string> settings-error;
+    in property <string> selected-profile-id;
+    in property <string> selected-server-id;
+    in property <string> selected-session-id;
+    in property <string> selected-instance-id;
+    callback save-server(string, string, string);
+    callback save-font-size(float);
+    callback remove-server(string);
+    callback toggle-server(string);
+    callback refresh-server(string);
+    callback select-instance(string, string, string, string);
+    in-out property <length> terminal-font-size: root.style.terminal-font-size;
     in property <string> selected-title;
     in-out property <bool> show-sessions: !root.compact;
     // Portrait windows show one pane; landscape windows share the space.
     private property <bool> compact: shell-layout.width < shell-layout.height;
     private property <length> sidebar-width: 0px;
-    callback select-session(int);
     in property <string> font-note;
     in property <bool> server-connected: false;
     in property <bool> server-connecting: false;
-    in-out property <string> server-endpoint;
     in property <string> connection-detail: "No connection";
-    callback connect-server(string);
     callback disconnect-server();
     in property <bool> terminal-enabled: false;
     in property <image> terminal-frame;
@@ -45,14 +57,6 @@ export component App inherits Window {
         padding: 0px;
         spacing: 0px;
 
-        ServerConnection {
-            style: root.style;
-            endpoint <=> root.server-endpoint;
-            connected: root.server-connected;
-            connecting: root.server-connecting;
-            connect(endpoint) => { root.connect-server(endpoint); }
-            disconnect => { root.disconnect-server(); }
-        }
         panes := HorizontalBox {
             padding: 0px;
             spacing: root.show-sessions ? root.style.stroke : 0px;
@@ -64,12 +68,24 @@ export component App inherits Window {
                 max-width: !root.show-sessions ? 0px : root.compact ? shell-layout.width : shell-layout.width / 2;
                 retained-width <=> root.sidebar-width;
                 style: root.style;
-                sessions: root.sessions;
+                servers: root.servers;
+                settings-error: root.settings-error;
+                selected-profile-id: root.selected-profile-id;
+                selected-server-id: root.selected-server-id;
+                selected-session-id: root.selected-session-id;
+                selected-instance-id: root.selected-instance-id;
+                edit-server(id, name, endpoint) => {
+                    root.editing-id = id;
+                    root.draft-name = name;
+                    root.draft-endpoint = endpoint;
+                    root.editing-server = true;
+                }
+                toggle-server(id) => { root.toggle-server(id); }
+                refresh-server(id) => { root.refresh-server(id); }
                 detail: root.connection-detail;
-                selected-index: root.selected-index;
                 toggle-sessions => { root.show-sessions = !root.show-sessions; }
-                select-session(index) => {
-                    root.select-session(index);
+                select-instance(profile, server, session, instance) => {
+                    root.select-instance(profile, server, session, instance);
                     if root.compact { root.show-sessions = false; }
                 }
             }
@@ -81,12 +97,16 @@ export component App inherits Window {
                 TabBar {
                     style: root.style;
                     selected-title: root.selected-title;
+                    terminal-enabled: root.terminal-enabled;
+                    detach-terminal => { root.disconnect-server(); }
                     show-sessions: root.show-sessions;
                     toggle-sessions => { root.show-sessions = !root.show-sessions; }
                 }
                 if root.terminal-enabled: TerminalView {
                     style: root.style;
                     frame: root.terminal-frame;
+                    font-size <=> root.terminal-font-size;
+                    font-size-committed(size) => { root.save-font-size(size); }
                     key(event, released) => { root.terminal-key(event, released); }
                     resized(w, h, pixels) => { root.terminal-resize(w, h, pixels); }
                 }
@@ -98,7 +118,7 @@ export component App inherits Window {
         }
         status-bar := StatusBar {
             style: root.style;
-            status: root.terminal-status;
+            status: root.settings-error != "" ? root.settings-error : root.terminal-status;
             detail: root.font-note != "" ? root.font-note : root.connection-detail;
         }
     }
@@ -138,4 +158,42 @@ export component App inherits Window {
         height: panes.height;
         background: resize.has-hover || resize.pressed ? root.style.palette.accent : transparent;
     }
+
+    // Keep draft ownership independent of catalog refreshes and sidebar visibility.
+    if root.editing-server: Rectangle {
+        background: #0008;
+        TouchArea { } // Modal input shield; dismissal is explicit.
+        available := Rectangle {
+            x: root.safe-area-insets.left;
+            y: root.safe-area-insets.top;
+            width: root.width - root.safe-area-insets.left - root.safe-area-insets.right;
+            // Android reports the visible IME rectangle in window coordinates.
+            height: max(0px, min(root.height - root.safe-area-insets.bottom,
+                root.virtual-keyboard-size.height > 0px ? root.virtual-keyboard-position.y : root.height) - self.y);
+            dialog := ScrollView {
+                x: (parent.width - self.width) / 2;
+                y: max(0px, (parent.height - self.height) / 2);
+                width: min(32rem, max(0px, parent.width - 2 * root.style.padding));
+                height: min(editor.preferred-height, max(0px, parent.height - 2 * root.style.padding));
+                editor := ServerConnection {
+                    style: root.style;
+                    profile-id: root.editing-id;
+                    draft-name <=> root.draft-name;
+                    draft-endpoint <=> root.draft-endpoint;
+                    error: root.settings-error;
+                    save(id, name, endpoint) => {
+                        root.save-server(id, name, endpoint);
+                        if root.settings-error == "" { root.editing-server = false; }
+                    }
+                    remove(id) => {
+                        root.remove-server(id);
+                        if root.settings-error == "" { root.editing-server = false; }
+                    }
+                    refresh(id) => { root.refresh-server(id); }
+                    close => { root.editing-server = false; }
+                }
+            }
+        }
+    }
+
 }
