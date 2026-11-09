@@ -1,6 +1,6 @@
 # Howl Slint decisions
 
-Recorded 8 November 2026. This is the host's current rationale, not a transcript
+Updated 9 November 2026. This is the host's current rationale, not a transcript
 or qualification checklist. Update an entry when its decision changes; keep
 historical detail in Git. The [product decision log](../../decisionlog.md) and
 [repository contract](../../AGENTS.md) still govern ownership.
@@ -128,8 +128,8 @@ memory plan. No new fonts have been bundled by this host.
 
 ## 6. Immutable dependencies; ABI numbers are not stability promises
 
-`native/build.zig.zon` pins Client Render 0.1.2-dev.1 by exact Zig hash, which
-brings its exact Client 0.1.8-dev dependency. Transitive owners pin VT/Text/Render.
+`native/build.zig.zon` pins Client Render release 0.1.3-dev.1 by exact Zig hash, which
+brings its exact Client 0.1.9-dev.1 release dependency. Transitive owners pin VT/Text/Render.
 There is no local Instance dependency. Cargo.lock records Rust resolution;
 Slint build tooling and Lucide have explicit constraints. Use the tracked Zig.
 
@@ -172,76 +172,89 @@ native/foreign tests and extracted-package checks before release.
 Keep exact run logs and screenshots in the active workstream, not this decision
 log. Passing tests do not turn provisional architecture into an accepted design.
 
-### Active-frame cost
+### Performance and fidelity policy
 
-Optimize the development frame path, not only host code: Slint/Skia image
-conversion runs on each changed frame too. Keep debug assertions and symbols.
-On Note10, paired 8-second Rain samples put the UI thread at 1.45–1.62 seconds
-of CPU with optimized dependencies versus 1.92–2.16 without; observer cost
-stayed around 1.2–1.3 seconds. These are CPU samples, not displayed FPS.
-A checked 1:1 alpha-mask row path also reduced native dense-Cells CPU about
-16% in repeated Home runs, with no meaningful Rain improvement.
+Keep debug assertions and symbols while optimizing the entire development frame
+path, including Slint dependencies. Canonical CPU paint optimizations remain
+covered by exact-byte and unaligned-buffer tests. Do not retain a cache unless
+its measured gain pays for ownership/invalidation complexity.
 
-Opaque framebuffer and solid fills precompute color bytes, destination and stride
-outside the pixel loop. This is not a new renderer: it prevents potential pointer
-aliasing from forcing repeated loads in ARM Clang. Exact-byte and unaligned-buffer
-tests protect behavior. Matched Android native paint CPU median fell from about
-43 ms to 4.1 ms at 2128×962; this is not an end-to-end frame-rate claim.
+UI font preferences are logical lengths; terminal viewport, raster size and
+framebuffer are physical pixels. DPI changes recreate only the observer/font
+owner, preserving command ownership and the remote shell. The first observation
+waits for acknowledged geometry; cancellation wakes that wait. Allocation grows
+to actual frames within 4096-pixel sides and 64 MiB RGBA. Fidelity costs real
+composition/upload work on high-density screens.
 
-No ABI change is justified by these results. Full CPU composition and image
-upload remain. A residency-cache prototype saved only about 4% native Rain CPU
-and did not consistently help Cells, so the additional cache ownership and
-invalidation machinery was not kept.
+Home 2× and Android 3.5× attach/input/resize/reconnect were exercised. A small
+Note10-local workload sustained approximately 60 Hz; larger grids exceeded the
+budget. Networked observations also had long tails absent from local controls.
+Neither result identifies a Wi-Fi defect or guarantees universal 60 Hz. Live
+cross-monitor DPI, orientation and complete mobile lifecycle remain separate
+qualification. Preserve exact workload, grid, pixels, fonts, build and route when
+comparing; producer rate, observation rate, rendering callbacks and physical
+presentation are different measurements.
 
-### Physical terminal pixels
+### Current wire contract and compressed-delta decision
 
-UI font preferences remain logical lengths. Terminal viewport, glyph raster size
-and displayed framebuffer use physical pixels, via Slint's reactive `phx` units.
-Moving between scales recreates only the observer/font owner; the command lane
-and remote shell survive. Integer font metrics may quantize the grid differently
-at fractional scales. The first observation waits for the command lane's geometry
-acknowledgment, avoiding an old wide grid rendered at the new larger font size.
-Cancellation wakes that wait before joining the observer.
+**Integrated:** bounded additive compressed deltas are published in Protocol
+0.1.2-dev.1, Client 0.1.9-dev.1 and Client Render 0.1.3-dev.1 releases; this host
+pins that cohort. **The host still uses packed observations.** Existing live
+Servers were not upgraded. A new symbol/package does not negotiate an old peer's
+wire support; changing the default requires an explicit compatible-peer contract.
 
-Native framebuffer allocation grows to actual frames, bounded at 4096 pixels per
-side and 64 MiB RGBA. Physical-resolution rendering improves fidelity, not speed:
-there are more real pixels to compose and upload on high-density displays.
+Workstream-only host tests compared packed/compressed on Unix and TCP loopback.
+Both already sustained approximately 60 rendering callbacks/s at the measured
+grid. Compression helps wire/Server work, especially sparse updates; it is not
+a demonstrated local FPS gain and does not remove CPU composition/full-image
+upload. The matched howl-app comparison still showed substantially lower CPU
+there; no performance-parity claim is accepted.
 
-Qualified on Home at 2× and Note10 at 3.5×: sharp text, first attach, input,
-sidebar expansion beyond 2048 pixels and disconnect/reconnect. Live cross-monitor
-scale changes and Android orientation changes still need device qualification.
-One Note10 Rain sample used 5.43 CPU seconds over 8 seconds at physical resolution,
-versus 3.60 at the previous logical resolution; idle remained below the 10 ms
-CPU-clock resolution over 8 seconds. These samples do not establish displayed FPS.
+### GPU presentation remains an experiment
 
-The post-fix Note10 native-buffer trace queued about 17.6 frames/s versus 14.3
-before, but still had 200–350 ms presentation gaps already present before buffer
-submission. An independent ping over the configured mesh route also reached
-277 ms RTT. TCP and Unix-over-SSH native probes both retained large observation
-waits. Do not attribute those upstream stalls to compositor CPU or claim this
-fill change eliminates jank. No TCP/VPN/firewall settings were changed.
+**Integrated foundation only:** private synchronous `remote_visit` borrows a
+canonical frame while its lease is alive. A consumer must copy before returning
+to retain data; rejection releases the lease without acknowledging the revision.
+The CPU path uses the same ownership path. No public ABI or default painter change.
 
-The same optimized native client against a Note10-local Server produced 361–362
-observations in two 12-second Rain runs, with no >100 ms waits and maxima of
-34–36 ms. Direct LAN SSH still showed long tails like Mesh. This isolates the
-large waits to the networked path; it does not establish a specific Wi-Fi,
-power-saving or SSH defect, nor qualify Slint's local displayed frame rate.
+The first notifier-based GPU integration passed pixel tests but regressed total
+host CPU. It was removed from product source, not shipped behind an attractive
+benchmark. An isolated Manual WGPU device/queue proof without the notifier cut
+host CPU roughly in half on Home's matched sparse/dense workloads. Exact window
+parity, atlas generations, ordering, alpha, resizing and clean cancellation were
+exercised. RSS did not meaningfully improve. These are host CPU results, not
+physical latency/FPS, GPU timestamps, howl-app parity or mobile qualification.
 
-A subsequent actual Android buffer trace with a local Server sustained essentially
-60 Hz for Rain and dense Cells at 61×13 cells (2318×962 physical pixels): 720
-producer frames in 12 seconds, no skipped source slots, presentation p95 about
-17 ms and maximum about 33 ms. This qualifies that workload and viewport, not a
-universal 60 Hz claim. At 80×24 cells (3040×1776), native dense Cells painting
-exceeded the 16.7 ms budget. Repeated runs changed substantially, including a
-slower immediate local control; do not attribute that variation solely to the
-network or assert thermal throttling without stronger evidence.
+Manual shutdown exposed WGPU 30.0.1 debug TLS bookkeeping, independently reproduced
+without Slint. Official upstream fix `efcf445` (PR 10030) passed as a local backport;
+the initialization-order workaround is removed from the proof. No fixed published
+30.x release was verified. Any shipped patch needs explicit provenance and an
+upstream removal point. Product has no WGPU patch or GPU dependency feature.
 
-After the user-approved 5 GHz switch, a networked Android Rain run with a
-60 fps producer presented about 43 buffers/s, p95 gap 34 ms and maximum 84 ms.
-Its grid was 56×13, smaller than the local run. This improves on earlier long
-stalls but is still not local 60 Hz; it does not prove roaming, power saving or
-any particular transport defect. Keep source, network observation and actual
-presentation measurements separate.
+A future painter must preserve one UI encoder/shared queue, exclusive image
+ownership, bounded frame/texture retention and exact canonical semantics.
+Composition completion is not a Slint sampling/presentation fence. Loss of the
+shared device cannot be repaired by supplying CPU pixels; automatic recreation,
+suspend/resume and other platforms remain unqualified.
+
+Detailed cohorts and source live in Home's
+`~/.local/state/workstreams/howl-current/frame-timing/`, especially
+`host-compressed/`, `howl-app-baseline/` and `wgpu-proof/`. Keep measurements and
+failed experiment narratives there, not in the maintained implementation.
+
+### Mobile qualification boundary
+
+A later compressed-Client build exhausted Note10 memory and restarted Android's
+framework. That ARM qualification did not pass. Recovery was checked, but app,
+Server and relay restoration was not assumed. Do not run further heavy phone
+builds without a new resource plan; Home evidence does not fill the missing gate.
+
+Slint supports Rust iOS hosts, but this host currently rejects iOS in build.rs.
+Apple SDK/packaging, composed native linkage, font lookup, sandbox storage and
+lifecycle/input qualification are still required. Start the iPhone route with the
+existing remote ABI and CPU image presenter, not a phone PTY or unproved Metal
+import. A Mac/Xcode build and actual simulator/device evidence are prerequisites;
+Android success is not iOS support. No iPhone build or deployment has occurred.
 
 ## Saved servers and one active terminal
 
