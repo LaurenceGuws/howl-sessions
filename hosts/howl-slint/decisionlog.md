@@ -384,3 +384,13 @@ FPS, input-to-display latency or GPU timestamps. Dota ran concurrently. No
 mobile GPU or suspend/resume qualification is implied. Exact receipts, process
 samples and command fixtures are in Home's active workstream under
 `horse-race-20261109/`. Production binaries require restart to use the changes.
+
+The follow-up Android native-only cross-build on Brommer did not qualify this
+checkpoint on Note10. With the exact Zig 0.17.0 and NDK r28c, bundled Text's
+native-header translation mixed Bionic fortified wrappers with host glibc
+limits.h. Explicit ZIG_LIBC/sysroot retries reproduced the failure; bundled-text
+forwarding was verified and pinned dependencies were not edited. Builds stayed
+within 2 CPUs/4 GiB (2.02 GiB observed peak) and were stopped. Note10's private
+Server start/stop passed, but the new native canary never ran. No phone builds,
+APK deployment, UI or system-setting changes occurred. Home results do not fill
+this Android gate; the Text cross-translation recipe remains follow-up work.
