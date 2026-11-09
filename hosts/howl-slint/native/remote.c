@@ -5,6 +5,17 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Rust's frame.rs mirrors this pinned canonical layout, not a host-owned ABI.
+ * Fail compilation if a future dependency changes any consumed record layout. */
+_Static_assert(sizeof(hrc_command) == 64 && offsetof(hrc_command, tag) == 56, "Rust command layout");
+_Static_assert(sizeof(hrc_resource) == 40 && offsetof(hrc_resource, width) == 32, "Rust resource layout");
+_Static_assert(sizeof(hrc_upload) == 56 && offsetof(hrc_upload, pixels) == 40, "Rust upload layout");
+_Static_assert(sizeof(hrc_frame_info) == 72 && offsetof(hrc_frame_info, surface_width) == 56, "Rust frame info layout");
+_Static_assert(sizeof(hrc_frame_view) == 96 && offsetof(hrc_frame_view, commands) == 72, "Rust frame view layout");
+
+_Static_assert(HRC_MAX_FRAME_COMMANDS == 114689 && HRC_MAX_RESIDENCIES == 9 &&
+    HRC_MAX_FRAME_PIXEL_BYTES == 80u * 1024u * 1024u, "Rust frame limits");
+
 #define MAX_TARGETS 256u
 struct remote_target { size_t session_index, instance_index; uint64_t session, instance; };
 struct remote_client {

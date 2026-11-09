@@ -180,6 +180,8 @@ impl Mailbox {
 
 #[derive(Clone)]
 struct View {
+    #[cfg(all(feature = "gpu", target_os = "linux"))]
+    gpu: Option<Arc<crate::gpu::Frames>>,
     app: slint::Weak<App>,
     mailbox: Arc<Mutex<Mailbox>>,
     active: Arc<AtomicBool>,
@@ -544,7 +546,18 @@ impl Sessions {
     pub fn refresh_profiles(&self, profiles: &[Profile]) {
         self.catalogs.synchronize(profiles);
     }
+    #[cfg(test)]
     pub fn attach(app: &App) -> Self {
+        Self::attach_presenter(
+            app,
+            #[cfg(all(feature = "gpu", target_os = "linux"))]
+            None,
+        )
+    }
+    pub fn attach_presenter(
+        app: &App,
+        #[cfg(all(feature = "gpu", target_os = "linux"))] gpu: Option<Arc<crate::gpu::Frames>>,
+    ) -> Self {
         let connection = Rc::new(RefCell::new(None::<Connection>));
         let catalogs = Rc::new(Catalogs {
             app: app.as_weak(),
@@ -604,6 +617,11 @@ impl Sessions {
             // exact endpoint and remote identities until explicit replacement.
             slot.borrow_mut().take();
             reset_view(&app);
+            #[cfg(all(feature = "gpu", target_os = "linux"))]
+            if gpu.as_ref().is_some_and(|gpu| gpu.failed()) {
+                app.set_terminal_status("GPU presentation stopped. Restart Howl to reconnect, or use HOWL_GPU=0 for CPU frames.".into());
+                return;
+            }
             app.set_selected_profile_id(profile_id);
             app.set_selected_server_id(server_id);
             app.set_selected_session_id(session_id);
@@ -633,6 +651,8 @@ impl Sessions {
                 size: raster_font_size(app.get_terminal_font_size(), app.window().scale_factor()),
             };
             let view = View {
+                #[cfg(all(feature = "gpu", target_os = "linux"))]
+                gpu: gpu.clone(),
                 app: app.as_weak(),
                 mailbox: Arc::new(Mutex::new(Mailbox::default())),
                 active: Arc::new(AtomicBool::new(true)),
@@ -1009,9 +1029,32 @@ fn observe(
         if !first_geometry.wait() {
             return Ok(());
         }
+        #[cfg(all(feature = "gpu", target_os = "linux"))]
+        let namespace = {
+            static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+            NEXT.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
+                .map_err(|_| "Renderer identity exhausted".to_string())?
+        };
         let mut previous = None;
         // Resize acknowledgment precedes the first observe request.
         loop {
+            #[cfg(all(feature = "gpu", target_os = "linux"))]
+            if let Some(gpu) = &view.gpu {
+                let (frame, exited) = unsafe { crate::frame::capture(client.0, namespace) }
+                    .map_err(|status| check(status).unwrap_err())?;
+                if gpu.publish(frame, view.active.clone()) {
+                    view.app
+                        .upgrade_in_event_loop({
+                            let gpu = gpu.clone();
+                            move |app| gpu.present(&app)
+                        })
+                        .map_err(|_| "Window closed".to_string())?;
+                }
+                if exited {
+                    break;
+                }
+                continue;
+            }
             let (mut pixels, mut width, mut height, mut exited) = (std::ptr::null(), 0, 0, 0);
             check(unsafe {
                 remote_step(client.0, &mut pixels, &mut width, &mut height, &mut exited)
@@ -1485,5 +1528,121 @@ mod tests {
                 new / iterations
             );
         }
+    }
+    /// Real window, catalog selection, input, observer and presentation. The
+    /// caller supplies a disposable Server running a workload gated on Enter.
+    #[cfg(all(feature = "gpu", target_os = "linux"))]
+    #[test]
+    #[ignore = "requires private Server and headless compositor"]
+    fn live_presentation() {
+        use std::time::{Duration, Instant};
+        fn cpu_ticks() -> u64 {
+            let stat = std::fs::read_to_string("/proc/self/stat").unwrap();
+            let fields: Vec<_> = stat
+                .rsplit_once(')')
+                .unwrap()
+                .1
+                .split_whitespace()
+                .collect();
+            fields[11].parse::<u64>().unwrap() + fields[12].parse::<u64>().unwrap()
+        }
+        let endpoint =
+            std::env::var("HOWL_TEST_ENDPOINT").expect("explicit private Server endpoint");
+        let marker = std::env::var("HOWL_TEST_STARTED").expect("workstream marker path");
+        let entries = catalog(
+            &CString::new(endpoint.as_str()).unwrap(),
+            &Interrupt::new().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            entries.len(),
+            1,
+            "test Server must contain exactly one disposable instance"
+        );
+        let gpu_context = crate::gpu::initialize().unwrap();
+        let app = App::new().unwrap();
+        app.window().set_size(slint::PhysicalSize::new(1024, 900));
+        app.set_show_sessions(false);
+        app.set_terminal_font_size(16.0);
+        let sessions = Rc::new(Sessions::attach_presenter(
+            &app,
+            crate::gpu::attach(&gpu_context, &app),
+        ));
+        sessions.catalogs.rows.lock().unwrap().push(Catalog {
+            profile: Profile {
+                id: 1,
+                name: "Private test".into(),
+                endpoint,
+                visible: true,
+            },
+            generation: 1,
+            entries: entries.clone(),
+            status: String::new(),
+        });
+        let entry = entries[0].clone();
+        app.invoke_select_instance(
+            "1".into(),
+            entry.server.to_string().into(),
+            entry.session.to_string().into(),
+            entry.instance.to_string().into(),
+        );
+        let tick = slint::Timer::default();
+        let started = Rc::new(Cell::new(None::<(Instant, u64)>));
+        let finished = Rc::new(Cell::new(false));
+        let observed = finished.clone();
+        let start = started.clone();
+        let weak = app.as_weak();
+        let owners = sessions.clone();
+        let deadline = Instant::now();
+        tick.start(
+            slint::TimerMode::Repeated,
+            Duration::from_millis(20),
+            move || {
+                let app = weak.upgrade().unwrap();
+                if start.get().is_none() && app.get_terminal_frame().size().width != 0 {
+                    assert!(app.get_server_connected());
+                    start.set(Some((Instant::now(), cpu_ticks())));
+                    std::fs::write(&marker, "started").unwrap();
+                    let owner = owners.connection.borrow();
+                    owner
+                        .as_ref()
+                        .unwrap()
+                        .sender
+                        .send(Command::Key(Key {
+                            named: 1,
+                            scalar: 0,
+                            action: 1,
+                            modifiers: 0,
+                        }))
+                        .unwrap();
+                }
+                if let Some((begin, cpu)) = start.get()
+                    && begin.elapsed() >= Duration::from_secs(7)
+                {
+                    println!(
+                        "LIVE_WINDOW mode={} ticks={} elapsed_ms={} status={}",
+                        if crate::gpu::enabled() { "gpu" } else { "cpu" },
+                        cpu_ticks() - cpu,
+                        begin.elapsed().as_millis(),
+                        app.get_terminal_status()
+                    );
+                    app.invoke_disconnect_server();
+                    assert!(owners.connection.borrow().is_none());
+                    observed.set(true);
+                    slint::quit_event_loop().unwrap();
+                }
+                if deadline.elapsed() > Duration::from_secs(15) {
+                    eprintln!("Live window timed out: {}", app.get_terminal_status());
+                    slint::quit_event_loop().unwrap();
+                }
+            },
+        );
+        app.run().unwrap();
+        tick.stop();
+        assert!(finished.get(), "live presentation never completed");
+        drop(sessions);
+        drop(tick);
+        drop(app);
+        drop(gpu_context);
     }
 }

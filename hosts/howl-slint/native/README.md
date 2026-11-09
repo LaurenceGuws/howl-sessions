@@ -13,7 +13,9 @@ blocks on the last delivery revision; action calls remain available while it
 waits. Only actions acquire geometry leadership. `cpu.c` consumes
 canonical Render commands; Howl still owns terminal semantics and text shaping.
 A frame is painted while its lease is live, released, then pixels are borrowed
-until the next call. Rust copies them before another native call. Disconnect
+until the next call. Rust copies them before another native call. The optional Linux GPU consumer
+copies typed canonical commands/atlas bytes through the same synchronous
+`remote_visit` callback before lease release. It never retains native pointers. Disconnect
 releases local resources, never closes the remote Session or kills its child.
 
 `build.rs` invokes the pinned Zig composition and compiles the host's small C

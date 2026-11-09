@@ -1,0 +1,3 @@
+# Preserve exact upstream bytes: unified-diff context lines and one published WGSL line.
+vendor/wgpu-core/howl-backport/upstream-fix.patch whitespace=-blank-at-eol
+vendor/wgpu-core/src/timestamp_normalization/common.wgsl whitespace=-blank-at-eol

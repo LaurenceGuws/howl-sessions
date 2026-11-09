@@ -61,7 +61,7 @@ returns to the same remote shell.
   The UI labels limited coverage; these are not Nerd Fonts or desktop-equivalent
   four-face fidelity. Explicit preferred-face overrides remain available. Portable
   font packaging is still open. Slint platform fonts independently serve UI text.
-- Full snapshots/CPU frames, 256 selectable running instances, 160×80 terminal
+- Packed snapshots, CPU-default frames, 256 selectable running instances, 160×80 terminal
   grid and 4096-pixel sides (16 million pixels total) are current host bounds.
   Native framebuffer storage grows to actual frames rather than allocating the
   maximum on connection. This is not a performance claim.
@@ -82,3 +82,54 @@ cost. Native live/workload benchmarks are documented in `native/README.md`.
 Neither producer cadence nor native step throughput is displayed FPS. Remaining
 cost includes full snapshot transport, canonical rendering, image upload and
 Slint presentation; no GPU or terminal-semantic shortcut is implied.
+
+## Optional Linux GPU presentation
+
+Home's Linux WGPU path is available explicitly:
+
+```sh
+HOWL_GPU=1 cargo run --locked --features gpu
+```
+
+Without `HOWL_GPU=1`, the same build uses the existing CPU frame path. Ordinary
+`cargo run --locked` also remains CPU-only. GPU initialization errors are reported;
+restart with `HOWL_GPU=0` to use CPU frames. This does not change the Server wire
+mode, terminal semantics, fonts, settings or saved connections. Android keeps the
+CPU path; no mobile GPU or suspend/resume qualification is implied.
+
+The observer copies typed canonical commands and complete atlas uploads while
+the native frame lease is alive. Only UI callbacks compose images, on the same
+explicit WGPU Device/Queue supplied to Slint. One pending frame and two output
+textures bound retention. The currently published image is never rewritten.
+Slint scene encoding, property replacement and our submissions serialize on the
+UI thread; all GPU sampling and writes serialize on the same queue. Completion
+flags bound composition backlog, **not** Slint sampling or physical presentation.
+Do not retain these textures in another view or use another queue/encoder thread.
+No rendering notifier or thread-local initialization workaround is installed.
+
+Slint is pinned to 1.18.1 for its unstable WGPU 30 interface. The temporary
+[wgpu-core backport](vendor/wgpu-core/howl-backport/README.md) contains only the
+verified upstream TLS-destruction fix over published 30.0.1, with exact provenance,
+checksums, verification script and removal gate. Debug assertions stay enabled.
+
+A presentation error stops the attachment and requires a host restart; the Server
+session and child survive. A lost shared device also breaks Slint rendering, so
+CPU pixels cannot repair it. Automatic device recreation, actual driver loss and
+suspend/resume remain unqualified.
+
+Additional checks (run GPU/window tests under an isolated `kwin-seat`, never on
+Captain's physical desktop):
+
+```sh
+cargo test --locked --features gpu
+cargo clippy --locked --features gpu --all-targets -- -D warnings
+cargo run --locked --features gpu --example queue_tls
+# In a private compositor:
+HOWL_GPU=1 cargo test --locked --features gpu gpu::tests::window_parity_and_reuse -- --exact --ignored --nocapture
+HOWL_GPU=1 cargo test --locked --features gpu gpu::tests::cancelled_frames_and_presentation_failure -- --exact --ignored --nocapture
+```
+
+The ignored `sessions::tests::live_presentation` takes `HOWL_TEST_ENDPOINT` for a
+disposable Server containing exactly one workload gated on Enter, plus an absolute
+`HOWL_TEST_STARTED` marker path. It measures host CPU over seven seconds in the
+actual App; it is not a displayed-FPS or input-to-display-latency benchmark.

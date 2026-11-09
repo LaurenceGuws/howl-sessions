@@ -1,3 +1,7 @@
+#[cfg(all(feature = "gpu", target_os = "linux"))]
+mod frame;
+#[cfg(all(feature = "gpu", target_os = "linux"))]
+mod gpu;
 mod input;
 mod sessions;
 mod settings;
@@ -7,14 +11,30 @@ use slint::ComponentHandle;
 slint::include_modules!();
 
 pub fn run() -> Result<(), slint::PlatformError> {
-    run_window(App::new()?, settings::desktop_path())
+    #[cfg(all(feature = "gpu", target_os = "linux"))]
+    let context = if gpu::enabled() {
+        Some(gpu::initialize().map_err(|error| slint::PlatformError::Other(error.to_string()))?)
+    } else {
+        None
+    };
+    run_window(
+        App::new()?,
+        settings::desktop_path(),
+        #[cfg(all(feature = "gpu", target_os = "linux"))]
+        context.as_ref(),
+    )
 }
 
 fn run_window(
     app: App,
     settings_path: Result<std::path::PathBuf, String>,
+    #[cfg(all(feature = "gpu", target_os = "linux"))] context: Option<&gpu::Context>,
 ) -> Result<(), slint::PlatformError> {
-    let sessions = std::rc::Rc::new(sessions::Sessions::attach(&app));
+    let sessions = std::rc::Rc::new(sessions::Sessions::attach_presenter(
+        &app,
+        #[cfg(all(feature = "gpu", target_os = "linux"))]
+        context.and_then(|context| gpu::attach(context, &app)),
+    ));
     let profile_sessions = sessions.clone();
     settings::attach(&app, settings_path, move |profiles| {
         profile_sessions.refresh_profiles(profiles);

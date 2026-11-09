@@ -210,37 +210,56 @@ a demonstrated local FPS gain and does not remove CPU composition/full-image
 upload. The matched howl-app comparison still showed substantially lower CPU
 there; no performance-parity claim is accepted.
 
-### GPU presentation remains an experiment
+### Optional Linux GPU presentation with a narrow upstream backport
 
-**Integrated foundation only:** private synchronous `remote_visit` borrows a
-canonical frame while its lease is alive. A consumer must copy before returning
-to retain data; rejection releases the lease without acknowledging the revision.
-The CPU path uses the same ownership path. No public ABI or default painter change.
+**Integrated:** the private synchronous `remote_visit` foundation now also feeds
+an opt-in typed command/atlas owner and Linux WGPU painter. The ordinary build and
+runtime remain CPU-default. `HOWL_GPU=1 cargo run --locked --features gpu` selects
+the qualified Home path; unset it or use `HOWL_GPU=0` for CPU presentation. The
+Server wire mode, canonical terminal/font owners, settings and Android path stay
+unchanged. A native frame is copied while its lease lives, then released before
+publication; no pointer or renderer lease crosses to the UI.
 
-The first notifier-based GPU integration passed pixel tests but regressed total
-host CPU. It was removed from product source, not shipped behind an attractive
-benchmark. An isolated Manual WGPU device/queue proof without the notifier cut
-host CPU roughly in half on Home's matched sparse/dense workloads. Exact window
-parity, atlas generations, ordering, alpha, resizing and clean cancellation were
-exercised. RSS did not meaningfully improve. These are host CPU results, not
-physical latency/FPS, GPU timestamps, howl-app parity or mobile qualification.
+The rejected notifier implementation remains out of product code. One explicit
+Manual Device/Queue is shared with Slint 1.18.1, without a rendering notifier or
+host thread-local owner. Only the UI submits composition or changes the terminal
+image. One latest pending frame, two alternating output textures and bounded
+atlas/command storage preserve the established resource limits. The current
+image is never rewritten. Single-threaded UI encoding and the same Queue order
+old Slint sampling before later writes. Composition completion only bounds our
+backlog; it is not a Slint sampling or physical-presentation fence. Do not extend
+this ownership model to another view, encoder thread or queue.
 
-Manual shutdown exposed WGPU 30.0.1 debug TLS bookkeeping, independently reproduced
-without Slint. Official upstream fix `efcf445` (PR 10030) passed as a local backport;
-the initialization-order workaround is removed from the proof. No fixed published
-30.x release was verified. Any shipped patch needs explicit provenance and an
-upstream removal point. Product has no WGPU patch or GPU dependency feature.
+WGPU 30.0.1's debug TLS shutdown crash is independently reproducible without Slint.
+The product vendors only `wgpu-core` 30.0.1 with the exact three-file official fix
+`efcf445784dd31537f09bc61bad27431de713fce` (PR 10030). Published bytes/checksum,
+upstream patch, retained licenses, verifier and removal gate live in
+`vendor/wgpu-core/howl-backport/`. No registry mutation, disabled assertions,
+leaked owner or initialization-order workaround is used. No fixed published
+30.x release was verified. Remove this backport only after verifying a compatible
+published replacement and rerunning shutdown, lock and host gates.
 
-A future painter must preserve one UI encoder/shared queue, exclusive image
-ownership, bounded frame/texture retention and exact canonical semantics.
-Composition completion is not a Slint sampling/presentation fence. Loss of the
-shared device cannot be repaired by supplying CPU pixels; automatic recreation,
-suspend/resume and other platforms remain unqualified.
+Qualification on Home: all 66 upstream library tests pass in default, ranked,
+observing and recording-enabled lock configurations. Host unit/default-feature
+checks, clippy, CPU/native live tests and repository test/check/audit gates pass.
+Twenty-four exact real Slint-window snapshots cover alpha, clipping, command
+order, atlas generations, coalescing and resizing. Cancellation and presentation
+failure clear pending frames and disable the attachment. Independent queue TLS
+shutdown and eight full App runs exit normally with assertions enabled.
 
-Detailed cohorts and source live in Home's
-`~/.local/state/workstreams/howl-current/frame-timing/`, especially
-`host-compressed/`, `howl-app-baseline/` and `wgpu-proof/`. Keep measurements and
-failed experiment narratives there, not in the maintained implementation.
+At the matched 1024×900 window / 128×42 terminal / 16px font, sparse host CPU was
+0.52s versus CPU presentation's 1.02–1.09s; dense was 0.90–0.91s versus 1.66–1.67s,
+measured over approximately seven seconds. Every six-second producer completed
+360 frames with no skipped slots. These are host CPU savings, not physical FPS,
+latency, GPU timestamp, memory improvement or howl-app parity claims. Exact
+source, flags, logs and receipts remain in Home's active workstream under
+`frame-timing/wgpu-proof/product-integration/` and `product-backport/`.
+
+Presentation failure disconnects the local attachment and requires restart;
+the Server session/child remains independent. Device loss also invalidates Slint's
+shared rendering device, so supplying CPU pixels is not recovery. Automatic
+recreation, actual driver/device loss, suspend/resume and mobile GPU support are
+not qualified. iPhone and heavy Note10 builds were not part of this change.
 
 ### Mobile qualification boundary
 
