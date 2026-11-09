@@ -167,10 +167,7 @@ impl Renderer {
         let mut keys = std::collections::BTreeSet::new();
         for a in &f.atlases {
             keys.insert((a.resource, a.generation));
-            use std::hash::{Hash, Hasher};
-            let mut hash = std::collections::hash_map::DefaultHasher::new();
-            (a.width, a.height, a.format, &a.pixels).hash(&mut hash);
-            let hash = hash.finish();
+            let hash = a.fingerprint;
             if let Some(old) = self.atlas.get(&(a.resource, a.generation)) {
                 if old.1 != hash {
                     return Err("Atlas changed within one generation".into());
@@ -372,7 +369,12 @@ pub struct Context {
     queue: wgpu::Queue,
 }
 pub fn initialize() -> Result<Context, Box<dyn std::error::Error>> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    // The Linux opt-in path uses Vulkan. Avoid loading unrelated EGL/GL
+    // drivers merely to enumerate adapters that this presenter will not use.
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::VULKAN,
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))?;
     eprintln!("Howl GPU adapter: {:?}", adapter.get_info());
@@ -568,22 +570,22 @@ mod tests {
             background: 0xff201008,
             commands,
             atlases: vec![
-                Atlas {
-                    resource: 1,
-                    generation: n + 1,
-                    width: 2,
-                    height: 2,
-                    format: 0,
-                    pixels: vec![0, 64, (n * 17) as u8, 255],
-                },
-                Atlas {
-                    resource: 2,
-                    generation: n + 1,
-                    width: 2,
-                    height: 2,
-                    format: 1,
-                    pixels: vec![255, 0, 0, 128, 0, 255, 0, 64, 0, 0, 255, 255, 9, 18, 27, 0],
-                },
+                Arc::new(Atlas::new(
+                    1,
+                    n + 1,
+                    2,
+                    2,
+                    0,
+                    vec![0, 64, (n * 17) as u8, 255],
+                )),
+                Arc::new(Atlas::new(
+                    2,
+                    n + 1,
+                    2,
+                    2,
+                    1,
+                    vec![255, 0, 0, 128, 0, 255, 0, 64, 0, 0, 255, 255, 9, 18, 27, 0],
+                )),
             ],
         }
     }

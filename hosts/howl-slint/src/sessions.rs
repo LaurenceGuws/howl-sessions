@@ -922,14 +922,14 @@ fn run(
                 view.publish(|update| update.status = Some("Connected".into()));
             }
             if let Some(result) = ended {
-                observer.take();
-                actions.take();
-                cancellation.observer.lock().unwrap().take();
-                cell = None;
                 view.publish(|update| {
                     update.status =
                         Some(result.err().unwrap_or_else(|| "Remote shell exited".into()))
                 });
+                // Completion ends the attachment, not merely its observer.
+                // Leave through the common owner cleanup and finished update;
+                // queued geometry must not revive a failed or exited session.
+                break;
             } else if !rebuild
                 && resized
                 && let (Some(actions), Some((width, height)), Some((cell_width, cell_height))) =
@@ -1035,12 +1035,14 @@ fn observe(
             NEXT.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
                 .map_err(|_| "Renderer identity exhausted".to_string())?
         };
+        #[cfg(all(feature = "gpu", target_os = "linux"))]
+        let mut atlas_cache = crate::frame::Cache::new(namespace);
         let mut previous = None;
         // Resize acknowledgment precedes the first observe request.
         loop {
             #[cfg(all(feature = "gpu", target_os = "linux"))]
             if let Some(gpu) = &view.gpu {
-                let (frame, exited) = unsafe { crate::frame::capture(client.0, namespace) }
+                let (frame, exited) = unsafe { atlas_cache.capture(client.0) }
                     .map_err(|status| check(status).unwrap_err())?;
                 if gpu.publish(frame, view.active.clone()) {
                     view.app
@@ -1476,6 +1478,58 @@ mod tests {
                 .is_some()
         });
         same_owner();
+        // A real observer failure must finish the command owner too. Cancel
+        // only its read lane so this cannot pass via explicit detach cleanup.
+        {
+            let connection = sessions.connection.borrow();
+            let c = connection.as_ref().unwrap();
+            c.cancellation
+                .observer
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .cancel();
+        }
+        wait(|| {
+            sessions
+                .connection
+                .borrow()
+                .as_ref()
+                .unwrap()
+                .worker
+                .as_ref()
+                .unwrap()
+                .is_finished()
+        });
+        let update = sessions
+            .connection
+            .borrow()
+            .as_ref()
+            .unwrap()
+            .view
+            .mailbox
+            .lock()
+            .unwrap()
+            .take(true)
+            .unwrap();
+        assert!(update.finished);
+        assert_eq!(update.status.as_deref(), Some("Connection cancelled"));
+        apply_update(&app, update);
+        assert!(!app.get_server_connected());
+        assert!(!app.get_terminal_enabled());
+        app.invoke_terminal_resize(720, 420, 20);
+        assert!(
+            sessions
+                .connection
+                .borrow()
+                .as_ref()
+                .unwrap()
+                .worker
+                .as_ref()
+                .unwrap()
+                .is_finished()
+        );
         app.invoke_disconnect_server();
         assert!(sessions.connection.borrow().is_none());
         for (endpoint, expected) in endpoints.iter().zip(entries.iter()) {
@@ -1559,14 +1613,18 @@ mod tests {
             1,
             "test Server must contain exactly one disposable instance"
         );
-        let gpu_context = crate::gpu::initialize().unwrap();
+        // Match production startup: CPU mode must not silently initialize the
+        // Manual WGPU backend, or CPU/GPU memory and timing are incomparable.
+        let gpu_context = crate::gpu::enabled().then(|| crate::gpu::initialize().unwrap());
         let app = App::new().unwrap();
         app.window().set_size(slint::PhysicalSize::new(1024, 900));
         app.set_show_sessions(false);
         app.set_terminal_font_size(16.0);
         let sessions = Rc::new(Sessions::attach_presenter(
             &app,
-            crate::gpu::attach(&gpu_context, &app),
+            gpu_context
+                .as_ref()
+                .and_then(|context| crate::gpu::attach(context, &app)),
         ));
         sessions.catalogs.rows.lock().unwrap().push(Catalog {
             profile: Profile {

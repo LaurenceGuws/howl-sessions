@@ -7,6 +7,7 @@
 
 /* Rust's frame.rs mirrors this pinned canonical layout, not a host-owned ABI.
  * Fail compilation if a future dependency changes any consumed record layout. */
+_Static_assert(sizeof(hrc_residency) == 24 && sizeof(hrc_removal) == 16, "Rust residency layout");
 _Static_assert(sizeof(hrc_command) == 64 && offsetof(hrc_command, tag) == 56, "Rust command layout");
 _Static_assert(sizeof(hrc_resource) == 40 && offsetof(hrc_resource, width) == 32, "Rust resource layout");
 _Static_assert(sizeof(hrc_upload) == 56 && offsetof(hrc_upload, pixels) == 40, "Rust upload layout");
@@ -179,8 +180,8 @@ static uint32_t paint_frame(void *context, const hrc_frame_view *frame) {
     if (cpu_paint(&p->surface, &view.info, view.commands, view.uploads)) { return HSC_PROTOCOL_ERROR; }
     return HSC_OK;
 }
-uint32_t remote_visit(struct remote_client *p, remote_frame_consumer consume, void *context, int *exited) {
-    if (!p || !consume || !exited) return HSC_INVALID_ARGUMENT;
+uint32_t remote_visit(struct remote_client *p, const hrc_residency *residency, size_t count, remote_frame_consumer consume, void *context, int *exited) {
+    if (!p || !consume || !exited || count > HRC_MAX_RESIDENCIES || (count && !residency)) return HSC_INVALID_ARGUMENT;
     *exited = 0;
     if (!p->attachment) return HSC_UNAVAILABLE;
     hsc_snapshot *snapshot = NULL;
@@ -190,7 +191,7 @@ uint32_t remote_visit(struct remote_client *p, remote_frame_consumer consume, vo
     hsc_metadata meta = {0};
     status = hsc_snapshot_metadata(snapshot, &meta);
     if (status) goto done;
-    status = hsr_capture(p->renderer, snapshot, NULL, 0, &frame);
+    status = hsr_capture(p->renderer, snapshot, residency, count, &frame);
     if (status) { status += 100; goto done; }
     hrc_frame_view view = {0};
     status = hsr_frame_read(frame, &view);
@@ -206,7 +207,7 @@ done:
 }
 uint32_t remote_step(struct remote_client *p, const uint8_t **pixels, uint32_t *width, uint32_t *height, int *exited) {
     *pixels = NULL;
-    uint32_t status = remote_visit(p, paint_frame, p, exited);
+    uint32_t status = remote_visit(p, NULL, 0, paint_frame, p, exited);
     if (status) return status;
     *pixels = p->surface.pixels;
     *width = p->surface.width;

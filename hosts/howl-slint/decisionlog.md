@@ -128,7 +128,7 @@ memory plan. No new fonts have been bundled by this host.
 
 ## 6. Immutable dependencies; ABI numbers are not stability promises
 
-`native/build.zig.zon` pins Client Render release 0.1.3-dev.1 by exact Zig hash, which
+`native/build.zig.zon` pins Client Render release 0.1.4-dev.1 by exact Zig hash, which
 brings its exact Client 0.1.9-dev.1 release dependency. Transitive owners pin VT/Text/Render.
 There is no local Instance dependency. Cargo.lock records Rust resolution;
 Slint build tooling and Lucide have explicit constraints. Use the tracked Zig.
@@ -247,6 +247,8 @@ order, atlas generations, coalescing and resizing. Cancellation and presentation
 failure clear pending frames and disable the attachment. Independent queue TLS
 shutdown and eight full App runs exit normally with assertions enabled.
 
+These historical CPU-image runs also initialized Manual WGPU; they compare
+composition within that backend, not production CPU-default startup.
 At the matched 1024×900 window / 128×42 terminal / 16px font, sparse host CPU was
 0.52s versus CPU presentation's 1.02–1.09s; dense was 0.90–0.91s versus 1.66–1.67s,
 measured over approximately seven seconds. Every six-second producer completed
@@ -316,3 +318,69 @@ caller-provided isolated fixtures. Android subsequently saved a profile through 
 force-stop/relaunch, rendered the retained remote shell and hid/restored the
 sidebar. Real pinch acceptance remains pending a finger check; synthetic
 single-pointer input does not establish multi-touch support.
+
+### Exclusive native atlas lease
+
+Client Render 0.1.4-dev.1 removes the second per-frame allocation/copy of
+canonical atlas pixels. Its existing single-frame admission rule prevents
+capture or destruction until release, so the frame exclusively leases the
+renderer pixel scratch. Cell-size queries are immutable. Snapshot ownership,
+canonical record layouts and the public frame lifetime remain unchanged. The
+Slint GPU worker still copies frame data before crossing to the UI; this change
+does not introduce shared native pointers or backend residency assumptions.
+Root test/check/audit, extracted-release and native-consumer tests passed.
+The matched runtime results below qualify the combined host changes.
+
+### Bounded GPU observer residency
+
+The GPU observer retains actual immutable CPU atlas bytes and supplies their
+exact canonical resource/generation/format/extent as residency. It applies new
+uploads and removals transactionally, validates every command against the
+complete resulting set, and only then commits residency. Each UI frame owns
+shared references to every required atlas, so dropping intermediate frames
+cannot lose a required upload. Font/DPI observer replacement creates a fresh
+namespace/cache. Cancellation can drop the cache while pending frames remain
+valid until discarded. No native pointers cross threads.
+
+Resource sets retain the existing 9-atlas/80-MiB bound; cache, pending and
+construction have a conservative aggregate ceiling of three sets, plus native
+scratch/GPU storage. The GPU owner retains fingerprints, not CPU atlas copies.
+Fingerprinting happens once at immutable upload construction, avoiding repeated
+full-byte hashing during presentation. CPU presentation remains uncached.
+Unit coverage includes dropped delivery, cancellation, resize, namespace reset,
+generation/extent/format replacement, failed validation preserving residency,
+removals and resource bounds. Exact real-window parity and presentation-failure
+tests passed on Home. The matched runtime results below cover this change.
+
+
+### Matched Home runtime qualification, 9 November 2026
+
+The live test now follows production startup, initializing Manual WGPU only
+when GPU mode is enabled. Private KWin, Iosevka 16px, the same 128×42 grid and
+1024×840 terminal pixels, and six-second/360-frame 60Hz Cells workloads were
+used for every host. Slint includes its tab bar in a 1024×900 window; howl-app
+hides its bar in 1024×840. Startup is excluded; process CPU samples span about
+5.9 active seconds. Two GPU pairs reverse execution order.
+
+GPU host CPU fell from 0.72–0.73s to 0.53–0.57s for sparse dose 1, and from
+1.03–1.05s to 0.86–0.87s for dense dose 512: about 24% and 17% less. CPU-image
+presentation measured 0.95s/1.66s versus 0.95s/1.72s before; no broad CPU-default
+speedup is claimed. Explicitly built howl-app ReleaseSafe remains faster at
+0.21–0.22s/0.45s. Slint's separate Server adds about 0.14s/0.49s; local and remote
+product ownership is not identical.
+
+Connected idle GPU RSS fell from about 422 to 289 MiB; running btop fell from
+429 to 298 MiB, excluding both Server and btop. The principal change removes
+unused LLVM/Gallium/EGL mappings by selecting Vulkan only, with no device/vendor
+hardcoding. It is not 130 MiB of private-heap savings: post-change btop host
+private memory was about 90 MiB; PSS varies with concurrent sharing. Disconnected
+GPU VRAM stayed about 32 MiB. SDL/OpenGL also loads extra drivers in private
+KWin; an explicit SDL/Vulkan control used less RSS but more CPU, so howl-app's
+renderer default was not changed.
+
+All producers completed 360 frames without skipped slots. GPU composition
+counts remained 362–364 with no busy skips. These are not physical displayed
+FPS, input-to-display latency or GPU timestamps. Dota ran concurrently. No
+mobile GPU or suspend/resume qualification is implied. Exact receipts, process
+samples and command fixtures are in Home's active workstream under
+`horse-race-20261109/`. Production binaries require restart to use the changes.

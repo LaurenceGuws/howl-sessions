@@ -1,7 +1,7 @@
 # Native boundary
 
 `build.zig.zon` pins the published Client Render composition by exact hash.
-It exports Client 0.1.9-dev and Client Render 0.1.3-dev as
+It exports Client 0.1.9-dev and Client Render 0.1.4-dev as
 `libhowl_sessions_native.so`, with the matching Client/Render/VT headers.
 Transitive owners pin VT/Text/Render themselves. No local Instance or PTY is
 linked into this host, and no sibling checkout is an implicit dependency.
@@ -13,7 +13,10 @@ blocks on the last delivery revision; action calls remain available while it
 waits. Only actions acquire geometry leadership. `cpu.c` consumes
 canonical Render commands; Howl still owns terminal semantics and text shaping.
 A frame is painted while its lease is live, released, then pixels are borrowed
-until the next call. Rust copies them before another native call. The optional Linux GPU consumer
+until the next call. Rust copies them before another native call. Client Render 0.1.4-dev leases its
+existing atlas scratch for the single outstanding native frame rather than
+allocating/copying atlas bytes a second time. Capture and destruction reject
+an open frame lease; the public ABI and host borrow lifetime are unchanged. The optional Linux GPU consumer
 copies typed canonical commands/atlas bytes through the same synchronous
 `remote_visit` callback before lease release. It never retains native pointers. Disconnect
 releases local resources, never closes the remote Session or kills its child.
@@ -51,8 +54,15 @@ replace APK UI and activity-lifecycle testing.
 
 CPU snapshots use a bounded 4096-pixel side, 16-million-pixel area and 512×192
 terminal grid. Pixel storage grows to actual frame size and retains its high-water
-allocation until close; opening a catalog does not allocate a framebuffer. Zero atlas
-residency gives each frame complete resources, at the cost of reuse. Graphics
+allocation until close; opening a catalog does not allocate a framebuffer. CPU
+painting uses zero atlas residency. The GPU observer passes its actual owned
+CPU atlas residency, reconstructs complete immutable frames from cached and new
+resources, and commits residency only after successful validation. Each resource
+set is limited to 9 atlases/80 MiB. Cache, pending frame and construction can
+retain different generations: their conservative combined ceiling is three such
+sets, excluding native scratch and GPU textures. Shared unchanged generations
+occupy one allocation; no historical cache or UI acknowledgement queue grows.
+Graphics
 images are explicitly unsupported. These constraints are not a GPU/performance
 claim; they remain visible design work rather than alternate runtime modes.
 

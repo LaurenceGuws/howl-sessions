@@ -149,9 +149,9 @@ int main(int argc, char **argv) {
         REQUIRE(remote_actions_resize(actions,640,400,cw,ch)==HSC_OK);
         const uint8_t *pixels = NULL; uint32_t width = 0, height = 0; int exited = 0;
         struct rejected_frame rejected = {0};
-        REQUIRE(remote_visit(host, NULL, &rejected, &exited) == HSC_INVALID_ARGUMENT);
+        REQUIRE(remote_visit(host, NULL, 0, NULL, &rejected, &exited) == HSC_INVALID_ARGUMENT);
         for (unsigned retry = 0; retry < 3; retry++) {
-            REQUIRE(remote_visit(host, reject_frame, &rejected, &exited) == HSC_RESOURCE_LIMIT);
+            REQUIRE(remote_visit(host, NULL, 0, reject_frame, &rejected, &exited) == HSC_RESOURCE_LIMIT);
             REQUIRE(!exited);
         }
         REQUIRE(rejected.calls == 3 && rejected.width && rejected.height);

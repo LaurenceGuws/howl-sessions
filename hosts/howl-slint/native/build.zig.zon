@@ -5,8 +5,8 @@
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .server_client_render = .{
-            .url = "https://github.com/LaurenceGuws/howl-sessions/releases/download/server-client-render-v0.1.3-dev.1/server-client-render-0.1.3-dev.tar.gz",
-            .hash = "server_client_render-0.1.3-dev-B-OhH5JSAgAmZnJ1ecETDup-Zh4Py96tJeFFsr9qDVDX",
+            .url = "https://github.com/LaurenceGuws/howl-sessions/releases/download/server-client-render-v0.1.4-dev.1/server-client-render-0.1.4-dev.tar.gz",
+            .hash = "server_client_render-0.1.4-dev-B-OhHz9XAgCl79IX1RDwmHOah9x4MRt9vHtnvICv0NCc",
         },
     },
     .paths = .{ "build.zig", "build.zig.zon", "remote.c", "remote.h", "cpu.c", "cpu.h", "README.md", "test" },

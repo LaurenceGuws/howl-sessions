@@ -85,7 +85,7 @@ Slint presentation; no GPU or terminal-semantic shortcut is implied.
 
 ## Optional Linux GPU presentation
 
-Home's Linux WGPU path is available explicitly:
+The Linux WGPU presentation path uses Vulkan and is available explicitly:
 
 ```sh
 HOWL_GPU=1 cargo run --locked --features gpu
@@ -93,13 +93,18 @@ HOWL_GPU=1 cargo run --locked --features gpu
 
 Without `HOWL_GPU=1`, the same build uses the existing CPU frame path. Ordinary
 `cargo run --locked` also remains CPU-only. GPU initialization errors are reported;
-restart with `HOWL_GPU=0` to use CPU frames. This does not change the Server wire
-mode, terminal semantics, fonts, settings or saved connections. Android keeps the
-CPU path; no mobile GPU or suspend/resume qualification is implied.
+restart with `HOWL_GPU=0` to use CPU frames. The opt-in path requires a Vulkan
+adapter and does not fall back to OpenGL. Restricting adapter enumeration avoids
+loading unrelated EGL/GL drivers; no vendor or device is hardcoded. This does not
+change the Server wire mode, terminal semantics, fonts, settings or saved
+connections. Android keeps the CPU path; no mobile GPU or suspend/resume qualification is implied.
 
-The observer copies typed canonical commands and complete atlas uploads while
-the native frame lease is alive. Only UI callbacks compose images, on the same
-explicit WGPU Device/Queue supplied to Slint. One pending frame and two output
+The observer copies typed canonical commands and newly emitted atlas uploads
+while the native frame lease is alive. Its bounded CPU residency cache retains
+immutable atlas bytes; every published frame includes shared ownership of all
+resources it needs, even when earlier pending frames are replaced. Fingerprints
+are computed once per upload, not every presentation. Only UI callbacks compose
+images, on the same explicit WGPU Device/Queue supplied to Slint. One pending frame and two output
 textures bound retention. The currently published image is never rewritten.
 Slint scene encoding, property replacement and our submissions serialize on the
 UI thread; all GPU sampling and writes serialize on the same queue. Completion
