@@ -58,25 +58,37 @@ pub(crate) fn resolve_font(pattern: &str) -> Result<CString, String> {
 pub(crate) fn key(event: slint::language::KeyEvent, released: bool) -> Option<Key> {
     use slint::platform::Key as SlintKey;
     let ch = event.text.chars().next()?;
+    // Slint uses C0 scalar values for modifier-key identities. Forward them as
+    // named physical keys so Howl owns legacy suppression and Kitty reporting;
+    // treating ControlR (U+0016) as text turns it into Ctrl-V in Neovim.
     let named = [
-        SlintKey::Return,
-        SlintKey::Tab,
-        SlintKey::Backspace,
-        SlintKey::Escape,
-        SlintKey::UpArrow,
-        SlintKey::DownArrow,
-        SlintKey::LeftArrow,
-        SlintKey::RightArrow,
-        SlintKey::Insert,
-        SlintKey::Delete,
-        SlintKey::Home,
-        SlintKey::End,
-        SlintKey::PageUp,
-        SlintKey::PageDown,
+        (SlintKey::Return, 1),
+        (SlintKey::Tab, 2),
+        (SlintKey::Backspace, 3),
+        (SlintKey::Escape, 4),
+        (SlintKey::UpArrow, 5),
+        (SlintKey::DownArrow, 6),
+        (SlintKey::LeftArrow, 7),
+        (SlintKey::RightArrow, 8),
+        (SlintKey::Insert, 9),
+        (SlintKey::Delete, 10),
+        (SlintKey::Home, 11),
+        (SlintKey::End, 12),
+        (SlintKey::PageUp, 13),
+        (SlintKey::PageDown, 14),
+        (SlintKey::Shift, 15),
+        (SlintKey::ShiftR, 16),
+        (SlintKey::Control, 17),
+        (SlintKey::ControlR, 18),
+        (SlintKey::Alt, 19),
+        (SlintKey::AltGr, 20),
+        (SlintKey::Meta, 21),
+        (SlintKey::MetaR, 22),
+        (SlintKey::CapsLock, 27),
     ]
     .iter()
-    .position(|k| char::from(*k) == ch)
-    .map(|i| i as u8 + 1)
+    .find(|(key, _)| char::from(*key) == ch)
+    .map(|(_, named)| *named)
     .unwrap_or(0);
     if named == 0 && ('\u{e000}'..='\u{f8ff}').contains(&ch) {
         return None;
@@ -120,4 +132,90 @@ pub(crate) fn configure_android_fonts(app: &crate::App) {
     style.terminal_fallbacks = slint::ModelRc::new(slint::VecModel::from(fallbacks));
     app.set_style(style);
     app.set_font_note("Android system fonts · limited coverage".into());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::key;
+    use slint::{language::KeyEvent, platform::Key as SlintKey};
+
+    fn event(ch: char, modifiers: u8, repeat: bool) -> KeyEvent {
+        let mut event = KeyEvent::default();
+        event.text = ch.to_string().into();
+        event.modifiers.shift = modifiers & 1 != 0;
+        event.modifiers.alt = modifiers & 2 != 0;
+        event.modifiers.control = modifiers & 4 != 0;
+        event.modifiers.meta = modifiers & 8 != 0;
+        event.repeat = repeat;
+        event
+    }
+
+    #[test]
+    fn modifiers_are_named_keys_not_control_text() {
+        for (slint, named) in [
+            (SlintKey::Shift, 15),
+            (SlintKey::ShiftR, 16),
+            (SlintKey::Control, 17),
+            (SlintKey::ControlR, 18),
+            (SlintKey::Alt, 19),
+            (SlintKey::AltGr, 20),
+            (SlintKey::Meta, 21),
+            (SlintKey::MetaR, 22),
+            (SlintKey::CapsLock, 27),
+        ] {
+            for modifiers in 0..16 {
+                for (repeat, released, action) in
+                    [(false, false, 1), (true, false, 2), (false, true, 3)]
+                {
+                    let key = key(event(slint.into(), modifiers, repeat), released).unwrap();
+                    assert_eq!(key.named, named, "Slint key {slint:?}");
+                    assert_eq!(key.modifiers, modifiers);
+                    assert_eq!(key.action, action);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn modifier_chords_preserve_text_and_transitions() {
+        for ch in ['c', 'v', 'q', 'V', ' ', '[', 'é'] {
+            for modifiers in 0..16 {
+                for (repeat, released, action) in
+                    [(false, false, 1), (true, false, 2), (false, true, 3)]
+                {
+                    let key = key(event(ch, modifiers, repeat), released).unwrap();
+                    assert_eq!(key.named, 0);
+                    assert_eq!(key.scalar, ch as u32);
+                    assert_eq!(key.modifiers, modifiers);
+                    assert_eq!(key.action, action);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn supported_navigation_keys_and_unknown_symbols_are_unchanged() {
+        for (slint, named) in [
+            (SlintKey::Return, 1),
+            (SlintKey::Tab, 2),
+            (SlintKey::Backspace, 3),
+            (SlintKey::Escape, 4),
+            (SlintKey::UpArrow, 5),
+            (SlintKey::DownArrow, 6),
+            (SlintKey::LeftArrow, 7),
+            (SlintKey::RightArrow, 8),
+            (SlintKey::Insert, 9),
+            (SlintKey::Delete, 10),
+            (SlintKey::Home, 11),
+            (SlintKey::End, 12),
+            (SlintKey::PageUp, 13),
+            (SlintKey::PageDown, 14),
+        ] {
+            let key = key(event(slint.into(), 4, false), false).unwrap();
+            assert_eq!(key.named, named);
+            assert_eq!(key.modifiers, 4);
+        }
+        assert!(key(KeyEvent::default(), false).is_none());
+        assert!(key(event('\u{e000}', 0, false), false).is_none());
+    }
 }
