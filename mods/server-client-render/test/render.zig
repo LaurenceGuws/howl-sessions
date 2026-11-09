@@ -274,7 +274,7 @@ fn constructTerminalrenderer(allocator: std.mem.Allocator, font: *text.FontSet) 
     terminal.deinit(owner);
 }
 
-test "native Render frame retains exact commands after Client snapshot release" {
+test "native Render frame exclusively leases pixels after Client snapshot release" {
     var scalar = [_]u32{'A'};
     var cells = [_]client.rich.Cell{cell(&scalar, 1, 0)};
     var rows = [_]client.rich.Row{.{ .wrapped = false, .line_geometry = 0, .cells = &cells }};
@@ -305,7 +305,24 @@ test "native Render frame retains exact commands after Client snapshot release" 
         if (command.tag == native.c.HRC_ALPHA_MASK) alpha_count += 1;
     }
     try std.testing.expect(alpha_count > 0);
+    // Atlas spans live in the parent's already-owned scratch, not a second
+    // per-frame pixel allocation. No producer operation can overwrite it.
+    const pixels = frame.uploads[0].pixels[0..frame.uploads[0].pixel_len];
+    try std.testing.expectEqual(@intFromPtr(owner.pixels.ptr), @intFromPtr(pixels.ptr));
+    const checksum = std.hash.Wyhash.hash(0, pixels);
+    scalar[0] = 'B';
+    const next = try client.view.project(std.testing.allocator, &source);
+    defer client.view.deinit(next);
+    try std.testing.expectError(error.Busy, native.capture(owner, next, &.{}));
+    const size = native.cellSize(owner);
+    try std.testing.expectEqual(frame.info.cell_width, size.width);
+    try std.testing.expectEqual(checksum, std.hash.Wyhash.hash(0, pixels));
     native.release(first);
+    // Release rearms the same renderer, including the borrowed scratch, and
+    // the test allocator checks that neither lease frees parent storage.
+    const second = try native.capture(owner, next, &.{});
+    try std.testing.expect(native.read(second).info.upload_count > 0);
+    native.release(second);
     try native.destroy(owner);
 }
 

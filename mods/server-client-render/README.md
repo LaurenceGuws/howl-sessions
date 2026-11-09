@@ -12,8 +12,11 @@ the exact Howl Render dependency.
 The native C owner is compositional: one dynamic artifact exports the Server
 Client ABI and the Render adapter ABI together. It never loads or casts an
 opaque snapshot from a different copy of Server Client. The C side receives
-the exact canonical Howl Render frame records, and a frame owns its copied
-commands/pixels until release. The snapshot is borrowed only during capture.
+the exact canonical Howl Render frame records. A frame owns projected commands
+and exclusively leases the renderer's pixel scratch until release, avoiding a
+second atlas allocation/copy. Capture and destruction reject an open lease;
+the only other renderer operation is an immutable cell-size query. The snapshot
+is borrowed only during capture.
 
 The native ABI v1 retains its original single-face `hsr_create` constructor.
 `hsr_create_family` additionally accepts regular, italic, bold and bold-italic

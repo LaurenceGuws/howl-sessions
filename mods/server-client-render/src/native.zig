@@ -52,13 +52,12 @@ pub const Renderer = struct {
     pixels: []u8,
     frame_open: bool = false,
 };
-/// Immutable C records copied from one canonical Render frame.
+/// Owns immutable projected C records and exclusively leases parent pixel scratch.
 pub const Frame = struct {
     allocator: std.mem.Allocator,
     parent: *Renderer,
     info: c.hrc_frame_info,
     commands: []c.hrc_command,
-    pixels: []u8,
     uploads: [render.maximum_frame_resources]c.hrc_upload = undefined,
     removals: [render.maximum_frame_resources]c.hrc_removal = undefined,
 };
@@ -194,7 +193,8 @@ fn growPixels(value: *Renderer, residency: []const render.Residency) Error!void 
     value.allocator.free(value.pixels);
     value.pixels = next;
 }
-/// Capture copies all Render records and atlas bytes before releasing source.
+/// Capture projects Render records and leases pixel scratch until frame release.
+/// The snapshot is borrowed only here; capture and destroy reject an open lease.
 pub fn capture(value: *Renderer, snapshot: *const View.Snapshot, backend: []const c.hrc_residency) Error!*Frame {
     if (value.frame_open) return error.Busy;
     const images = View.graphics(snapshot);
@@ -239,8 +239,6 @@ pub fn capture(value: *Renderer, snapshot: *const View.Snapshot, backend: []cons
     errdefer value.allocator.destroy(owned);
     const commands = try value.allocator.alloc(c.hrc_command, rendered.commands.len);
     errdefer value.allocator.free(commands);
-    const pixels = try value.allocator.dupe(u8, rendered.pixels);
-    errdefer value.allocator.free(pixels);
     // zig-audit: acknowledge discard
     // reason: Complete immutable output is retained by the frame until explicit release.
     _ = try projection.commands(rendered.commands, commands);
@@ -267,11 +265,10 @@ pub fn capture(value: *Renderer, snapshot: *const View.Snapshot, backend: []cons
             .reserved = @splat(0),
         },
         .commands = commands,
-        .pixels = pixels,
     };
     // zig-audit: acknowledge discard
     // reason: All pixel spans were checked before immutable frame publication.
-    _ = try projection.uploads(rendered.uploads, pixels, &owned.uploads);
+    _ = try projection.uploads(rendered.uploads, rendered.pixels, &owned.uploads);
     // zig-audit: acknowledge discard
     // reason: The exact complete removal records are copied before frame publication.
     _ = try projection.removals(rendered.removals, &owned.removals);
@@ -291,7 +288,6 @@ pub fn read(value: *const Frame) c.hrc_frame_view {
 pub fn release(value: *Frame) void {
     const allocator = value.allocator;
     const parent = value.parent;
-    allocator.free(value.pixels);
     allocator.free(value.commands);
     allocator.destroy(value);
     parent.frame_open = false;
