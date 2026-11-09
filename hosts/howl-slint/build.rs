@@ -126,6 +126,7 @@ fn main() {
         "native/ios.m",
         "native/build.zig",
         "native/build.zig.zon",
+        "native/app.zig",
     ] {
         println!("cargo:rerun-if-changed={path}");
     }

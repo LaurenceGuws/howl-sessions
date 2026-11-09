@@ -9,5 +9,5 @@
             .hash = "server_client_render-0.1.4-dev-B-OhHz9XAgCl79IX1RDwmHOah9x4MRt9vHtnvICv0NCc",
         },
     },
-    .paths = .{ "build.zig", "build.zig.zon", "remote.c", "remote.h", "cpu.c", "cpu.h", "README.md", "test" },
+    .paths = .{ "build.zig", "build.zig.zon", "app.zig", "remote.c", "remote.h", "cpu.c", "cpu.h", "README.md", "test" },
 }

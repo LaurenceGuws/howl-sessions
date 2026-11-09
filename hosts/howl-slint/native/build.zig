@@ -9,9 +9,17 @@ pub fn build(b: *std.Build) void {
     // a plain static archive would leave those transitive archives out.
     const library = render.artifact("howl_sessions_native");
     b.installArtifact(library);
+    const app = b.createModule(.{
+        .root_source_file = b.path("app.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+        .pic = true,
+    });
+    app.addImport("composition", library.root_module);
     const object = b.addObject(.{
         .name = "howl_sessions_native",
-        .root_module = library.root_module,
+        .root_module = app,
         .use_llvm = true,
         .use_lld = target.result.os.tag != .ios,
     });

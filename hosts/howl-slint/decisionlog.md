@@ -412,3 +412,10 @@ CoreText monospace-file discovery and UIKit app/scene detach notifications. No
 fixed private font paths, phone PTY, new provisioning credentials or speculative
 Metal importer is introduced. This is an experimental build lane pending actual
 Apple compilation, installation and device evidence, not an iOS support claim.
+
+The first real Apple build compiled Slint/Skia and bundled ARM64 FreeType/HarfBuzz,
+then exposed a Zig 0.17 `Io.Threaded.NullFile.fd` compile error through the default
+panic/debug I/O vtable's unsupported iOS process-spawn branch. The mobile static
+root now retains FullPanic safety checks but writes a bounded fatal message using
+libc and traps; the operating system crash report owns stack inspection. It imports
+the unchanged published ABI rather than patching Zig, an SDK or dependency cache.

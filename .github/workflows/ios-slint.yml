@@ -34,7 +34,8 @@ jobs:
           rustup toolchain install 1.96.0 --profile minimal --target aarch64-apple-ios
           rustup default 1.96.0
           xcodebuild -version
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        id: cache
         with:
           path: |
             ~/.cargo/registry
@@ -53,3 +54,11 @@ jobs:
             build/ios/SHA256SUMS
           if-no-files-found: error
           retention-days: 7
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        if: always() && steps.cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            build/cargo-ios
+          key: ios-${{ runner.arch }}-rust196-${{ hashFiles('hosts/howl-slint/Cargo.lock') }}-${{ github.sha }}
