@@ -44,6 +44,17 @@ static int await_observation(struct observation *o) {
     return 0;
 }
 
+/* A rejected delivery must release its HSR lease and remain retryable. No
+ * callback pointer survives the call. Repeated failures also cover cleanup. */
+struct rejected_frame { unsigned calls; uint32_t width, height; };
+static uint32_t reject_frame(void *context, const hrc_frame_view *view) {
+    struct rejected_frame *seen = context;
+    seen->calls++;
+    seen->width = view->info.surface_width;
+    seen->height = view->info.surface_height;
+    return HSC_RESOURCE_LIMIT;
+}
+
 int main(int argc, char **argv) {
     if (argc != 3) { fprintf(stderr, "usage: sessions-live ENDPOINT FONT_PATH\n"); return 2; }
     int result = 1;
@@ -137,6 +148,13 @@ int main(int argc, char **argv) {
         REQUIRE(remote_actions_open(argv[1],action_interrupt,sid,session_id,instance_id,&actions)==HSC_OK);
         REQUIRE(remote_actions_resize(actions,640,400,cw,ch)==HSC_OK);
         const uint8_t *pixels = NULL; uint32_t width = 0, height = 0; int exited = 0;
+        struct rejected_frame rejected = {0};
+        REQUIRE(remote_visit(host, NULL, &rejected, &exited) == HSC_INVALID_ARGUMENT);
+        for (unsigned retry = 0; retry < 3; retry++) {
+            REQUIRE(remote_visit(host, reject_frame, &rejected, &exited) == HSC_RESOURCE_LIMIT);
+            REQUIRE(!exited);
+        }
+        REQUIRE(rejected.calls == 3 && rejected.width && rejected.height);
         REQUIRE(remote_step(host, &pixels, &width, &height, &exited) == HSC_OK);
         REQUIRE(pixels && width && height && width <= 640 && height <= 400 && !exited);
         /* Drain any already-published shell output, then prove idle observation

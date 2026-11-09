@@ -1,6 +1,7 @@
 #ifndef HOWL_SLINT_REMOTE_H
 #define HOWL_SLINT_REMOTE_H
 #include "howl_server_client.h"
+#include "howl_render_native.h"
 /* Private host adapter, not another published terminal ABI. One serial worker
  * owns this client. Interrupt may cancel from another thread, but outlives it.
  * Input strings borrow calls; returned pixels borrow until the next call. */
@@ -18,5 +19,12 @@ uint32_t remote_actions_open(const char *, hsc_interrupt *, uint64_t, uint64_t, 
 void remote_actions_close(struct remote_actions *);
 uint32_t remote_actions_key(struct remote_actions *, uint8_t, uint32_t, uint8_t, uint8_t);
 uint32_t remote_actions_resize(struct remote_actions *, uint32_t, uint32_t, uint16_t, uint16_t);
+/* Runs synchronously on the serial client owner. The canonical view and all
+ * referenced pixels borrow only this callback; copy before returning if another
+ * thread will consume them. Return HSC_OK only after taking ownership. Failure
+ * releases the lease without acknowledging the delivery revision. Never unwind
+ * through this C callback or re-enter the client from it. */
+typedef uint32_t (*remote_frame_consumer)(void *, const hrc_frame_view *);
+uint32_t remote_visit(struct remote_client *, remote_frame_consumer, void *, int *);
 uint32_t remote_step(struct remote_client *, const uint8_t **, uint32_t *, uint32_t *, int *);
 #endif

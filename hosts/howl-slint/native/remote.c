@@ -146,8 +146,26 @@ uint32_t remote_actions_resize(struct remote_actions *p, uint32_t width, uint32_
     hsc_geometry geometry = {(uint16_t)rows, (uint16_t)columns, cell_width, cell_height};
     return hsc_resize_geometry(p->attachment, &geometry, 1);
 }
-uint32_t remote_step(struct remote_client *p, const uint8_t **pixels, uint32_t *width, uint32_t *height, int *exited) {
-    *pixels = NULL;
+static uint32_t paint_frame(void *context, const hrc_frame_view *frame) {
+    struct remote_client *p = context;
+    const hrc_frame_view view = *frame;
+    size_t frame_width = view.info.surface_width, frame_height = view.info.surface_height;
+    if (!frame_width || !frame_height || frame_width > CPU_MAX_SIDE ||
+        frame_height > CPU_MAX_SIDE || frame_width > CPU_MAX_PIXELS / frame_height) {
+        return HSC_RESOURCE_LIMIT;
+    }
+    size_t bytes = frame_width * frame_height * 4u;
+    if (bytes > p->surface_capacity) {
+        uint8_t *grown = realloc(p->surface.pixels, bytes);
+        if (!grown) { return HSC_OUT_OF_MEMORY; }
+        p->surface.pixels = grown;
+        p->surface_capacity = bytes;
+    }
+    if (cpu_paint(&p->surface, &view.info, view.commands, view.uploads)) { return HSC_PROTOCOL_ERROR; }
+    return HSC_OK;
+}
+uint32_t remote_visit(struct remote_client *p, remote_frame_consumer consume, void *context, int *exited) {
+    if (!p || !consume || !exited) return HSC_INVALID_ARGUMENT;
     *exited = 0;
     if (!p->attachment) return HSC_UNAVAILABLE;
     hsc_snapshot *snapshot = NULL;
@@ -157,31 +175,26 @@ uint32_t remote_step(struct remote_client *p, const uint8_t **pixels, uint32_t *
     hsc_metadata meta = {0};
     status = hsc_snapshot_metadata(snapshot, &meta);
     if (status) goto done;
-    *exited = (meta.flags & 8) != 0;
     status = hsr_capture(p->renderer, snapshot, NULL, 0, &frame);
     if (status) { status += 100; goto done; }
     hrc_frame_view view = {0};
     status = hsr_frame_read(frame, &view);
     if (status) { status += 100; goto done; }
-    size_t frame_width = view.info.surface_width, frame_height = view.info.surface_height;
-    if (!frame_width || !frame_height || frame_width > CPU_MAX_SIDE ||
-        frame_height > CPU_MAX_SIDE || frame_width > CPU_MAX_PIXELS / frame_height) {
-        status = HSC_RESOURCE_LIMIT; goto done;
-    }
-    size_t bytes = frame_width * frame_height * 4u;
-    if (bytes > p->surface_capacity) {
-        uint8_t *grown = realloc(p->surface.pixels, bytes);
-        if (!grown) { status = HSC_OUT_OF_MEMORY; goto done; }
-        p->surface.pixels = grown;
-        p->surface_capacity = bytes;
-    }
-    if (cpu_paint(&p->surface, &view.info, view.commands, view.uploads)) { status = HSC_PROTOCOL_ERROR; goto done; }
+    status = consume(context, &view);
+    if (status) goto done;
     p->revision = meta.delivery_revision;
-    *pixels = p->surface.pixels;
-    *width = p->surface.width;
-    *height = p->surface.height;
+    *exited = (meta.flags & 8) != 0;
 done:
     hsr_frame_release(&frame);
     hsc_snapshot_release(&snapshot);
     return status;
+}
+uint32_t remote_step(struct remote_client *p, const uint8_t **pixels, uint32_t *width, uint32_t *height, int *exited) {
+    *pixels = NULL;
+    uint32_t status = remote_visit(p, paint_frame, p, exited);
+    if (status) return status;
+    *pixels = p->surface.pixels;
+    *width = p->surface.width;
+    *height = p->surface.height;
+    return HSC_OK;
 }
