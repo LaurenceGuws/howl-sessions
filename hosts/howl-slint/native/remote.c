@@ -151,9 +151,13 @@ uint32_t remote_actions_resize(struct remote_actions *p, uint32_t width, uint32_
     if (!p || !cell_width || !cell_height) return HSC_INVALID_ARGUMENT;
     if (width < cell_width || height < cell_height) return HSC_OK;
     uint32_t columns = width / cell_width, rows = height / cell_height;
-    if (columns > 160) columns = 160;
-    if (rows > 80) rows = 80;
-    if (columns * cell_width > CPU_MAX_SIDE || rows * cell_height > CPU_MAX_SIDE) return HSC_RESOURCE_LIMIT;
+    /* Fill the viewport in whole cells, bounded by the canonical renderer and
+     * the host's pixel surface. A large window must not stretch a small grid. */
+    if (columns > HRC_MAX_COLUMNS) columns = HRC_MAX_COLUMNS;
+    if (rows > HRC_MAX_ROWS) rows = HRC_MAX_ROWS;
+    if (columns > CPU_MAX_SIDE / cell_width) columns = CPU_MAX_SIDE / cell_width;
+    if (rows > CPU_MAX_SIDE / cell_height) rows = CPU_MAX_SIDE / cell_height;
+    if (!columns || !rows) return HSC_RESOURCE_LIMIT;
     hsc_geometry geometry = {(uint16_t)rows, (uint16_t)columns, cell_width, cell_height};
     return hsc_resize_geometry(p->attachment, &geometry, 1);
 }

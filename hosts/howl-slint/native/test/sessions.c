@@ -190,6 +190,34 @@ int main(int argc, char **argv) {
             REQUIRE(pthread_join(observer,NULL)==0); observer_started=0;
             REQUIRE(observation.status==HSC_OK);
         }
+        /* Large and tall viewports must use the canonical cell budget, not
+         * the old 160x80 host clamp. Shrinking then growing must reflow too. */
+        const uint32_t sizes[][2] = {{3448, 970}, {1300, 2200}, {640, 400}, {3448, 970}, {UINT32_MAX, UINT32_MAX}};
+        for (size_t size = 0; size < sizeof(sizes) / sizeof(sizes[0]); size++) {
+            uint32_t columns = sizes[size][0] / cw, rows = sizes[size][1] / ch;
+            if (columns > HRC_MAX_COLUMNS) columns = HRC_MAX_COLUMNS;
+            if (rows > HRC_MAX_ROWS) rows = HRC_MAX_ROWS;
+            if (columns > 4096u / cw) columns = 4096u / cw;
+            if (rows > 4096u / ch) rows = 4096u / ch;
+            REQUIRE(remote_actions_resize(actions,sizes[size][0],sizes[size][1],cw,ch)==HSC_OK);
+            do {
+                observation=(struct observation){.host=host};
+                REQUIRE(pthread_create(&observer,NULL,observe,&observation)==0); observer_started=1;
+                REQUIRE(await_observation(&observation));
+                REQUIRE(pthread_join(observer,NULL)==0); observer_started=0;
+                REQUIRE(observation.status==HSC_OK);
+            } while(observation.width != columns*cw || observation.height != rows*ch);
+            REQUIRE(observation.width <= 4096 && observation.height <= 4096);
+            printf("GEOMETRY_PASS viewport=%ux%u grid=%ux%u raster=%ux%u\n",
+                sizes[size][0], sizes[size][1], columns, rows, observation.width, observation.height);
+            if (size == 0) REQUIRE(columns > 160);
+            if (size == 1) REQUIRE(rows > 80);
+        }
+        REQUIRE(remote_actions_resize(actions,640,400,0,ch)==HSC_INVALID_ARGUMENT);
+        REQUIRE(remote_actions_resize(actions,640,400,cw,0)==HSC_INVALID_ARGUMENT);
+        REQUIRE(remote_actions_resize(actions,UINT32_MAX,UINT32_MAX,4097,ch)==HSC_RESOURCE_LIMIT);
+        /* An unallocated/hidden viewport never replaces canonical geometry. */
+        REQUIRE(remote_actions_resize(actions,0,0,cw,ch)==HSC_OK);
         /* A DPI-sized renderer needs a physical frame wider than the old
          * 2048 limit. Recreate only this observer; the remote shell survives. */
         REQUIRE(remote_attach(host, sid, session_id, instance_id, faces, NULL, 0, 32) == HSC_OK);

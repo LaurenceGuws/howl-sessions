@@ -49,7 +49,7 @@ replace APK UI and activity-lifecycle testing.
 
 ## Current presentation limits
 
-CPU snapshots use a bounded 4096-pixel side, 16-million-pixel area and 160×80
+CPU snapshots use a bounded 4096-pixel side, 16-million-pixel area and 512×192
 terminal grid. Pixel storage grows to actual frame size and retains its high-water
 allocation until close; opening a catalog does not allocate a framebuffer. Zero atlas
 residency gives each frame complete resources, at the cost of reuse. Graphics

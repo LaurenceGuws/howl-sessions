@@ -61,7 +61,7 @@ returns to the same remote shell.
   The UI labels limited coverage; these are not Nerd Fonts or desktop-equivalent
   four-face fidelity. Explicit preferred-face overrides remain available. Portable
   font packaging is still open. Slint platform fonts independently serve UI text.
-- Packed snapshots, CPU-default frames, 256 selectable running instances, 160×80 terminal
+- Packed snapshots, CPU-default frames, 256 selectable running instances, 512×192 terminal
   grid and 4096-pixel sides (16 million pixels total) are current host bounds.
   Native framebuffer storage grows to actual frames rather than allocating the
   maximum on connection. This is not a performance claim.
@@ -122,6 +122,8 @@ Captain's physical desktop):
 
 ```sh
 cargo test --locked --features gpu
+# In a private compositor:
+cargo test --locked tests::terminal_fills_allocated_viewport -- --exact --ignored --nocapture
 cargo clippy --locked --features gpu --all-targets -- -D warnings
 cargo run --locked --features gpu --example queue_tls
 # In a private compositor:

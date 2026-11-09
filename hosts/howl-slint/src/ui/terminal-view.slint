@@ -13,6 +13,7 @@ export component TerminalView inherits FocusScope {
     private property <length> physical-pixel: 1phx;
     private property <int> raster-font-size: max(1, round(root.font-size / root.physical-pixel));
     changed raster-font-size => { root.resized(self.width / 1phx, self.height / 1phx, self.raster-font-size); }
+    horizontal-stretch: 1;
     vertical-stretch: 1;
     min-width: 0px;
     min-height: 0px;
@@ -26,6 +27,10 @@ export component TerminalView inherits FocusScope {
     Rectangle {
         clip: true;
         Image {
+            // Whole-cell rounding leaves only a sub-cell remainder at the
+            // right/bottom, never a centered or rescaled terminal bitmap.
+            x: 0px;
+            y: 0px;
             source: root.frame;
             width: self.source.width * 1phx * root.preview-scale;
             height: self.source.height * 1phx * root.preview-scale;
