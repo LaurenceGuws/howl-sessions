@@ -68,6 +68,39 @@ returns to the same remote shell.
 - Graphics-image snapshots are explicitly unsupported by this Render integration;
   IME, full paste/mouse integration and network auto-discovery are not implemented.
 
+## iOS device bring-up
+
+The experimental ARM64 iPhone lane uses Slint's Winit/Skia backend and the
+existing CPU terminal image presenter. It does not enable the Linux WGPU path,
+local PTYs, or a background terminal service. Apple compilation and physical
+keyboard/lifecycle qualification are separate gates; this lane is not yet a
+qualified mobile release.
+
+From a clean, pushed repository on Home, `ios build` dispatches
+`.github/workflows/ios-slint.yml` on GitHub macOS/Xcode and verifies the unsigned
+IPA checksum. `ios deploy --wifi` additionally provisions and installs it through
+Home's existing Splice account. The bundle `uk.laurencegouws.howlslint` installs as
+**Howl Slint**, separately from the older Howl application. Free provisioning
+and its installed-app/App-ID limits still apply. No Apple account secret enters
+GitHub Actions. The same-LAN Wi-Fi/USB deployment contract belongs to
+`~/personal/ios`; WARP/Mesh is app traffic, not an Apple installation transport.
+
+For an attended Mac build, install the tracked Zig and Rust 1.96.0 with the
+`aarch64-apple-ios` target, then set an absolute, unused `HOWL_IOS_OUTPUT`
+directory and run `ios/build-unsigned.sh`. Xcode supplies the SDK. The package
+checks that its only dynamic dependencies are Apple system libraries. Native
+Client/Render and target-built FreeType/HarfBuzz are linked statically from the
+same hash-pinned composition. No adjacent checkout is imported.
+
+Foundation provides sandbox Application Support storage. CoreText discovers a
+readable system monospace file and verifies collection face zero, matching the
+native font ABI. Coverage is explicitly limited; no desktop/Nerd Font fidelity
+is claimed. App and scene inactivity synchronously detach; resume requires
+selecting a session. iOS 27's scene manifest names SlintWindowSceneDelegate.
+First-device gates include launch, font readability, trusted-network connection,
+software keyboard, orientation/safe areas, background detachment and explicit
+reattachment to the surviving remote shell.
+
 ## Performance checks
 
 The development profile uses optimization level 2 for the host and UI dependencies

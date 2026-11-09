@@ -3,6 +3,8 @@ mod frame;
 #[cfg(all(feature = "gpu", target_os = "linux"))]
 mod gpu;
 mod input;
+#[cfg(target_os = "ios")]
+mod ios;
 mod sessions;
 mod settings;
 
@@ -17,9 +19,16 @@ pub fn run() -> Result<(), slint::PlatformError> {
     } else {
         None
     };
+    let app = App::new()?;
+    #[cfg(target_os = "ios")]
+    ios::configure_fonts(&app).map_err(slint::PlatformError::Other)?;
+    #[cfg(target_os = "ios")]
+    let settings_path = ios::settings_path();
+    #[cfg(not(target_os = "ios"))]
+    let settings_path = settings::desktop_path();
     run_window(
-        App::new()?,
-        settings::desktop_path(),
+        app,
+        settings_path,
         #[cfg(all(feature = "gpu", target_os = "linux"))]
         context.as_ref(),
     )
@@ -39,6 +48,8 @@ fn run_window(
     settings::attach(&app, settings_path, move |profiles| {
         profile_sessions.refresh_profiles(profiles);
     });
+    #[cfg(target_os = "ios")]
+    let _lifecycle = ios::Lifecycle::attach(&app);
     app.run()
 }
 

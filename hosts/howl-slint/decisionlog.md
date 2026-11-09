@@ -394,3 +394,21 @@ within 2 CPUs/4 GiB (2.02 GiB observed peak) and were stopped. Note10's private
 Server start/stop passed, but the new native canary never ran. No phone builds,
 APK deployment, UI or system-setting changes occurred. Home results do not fill
 this Android gate; the Text cross-translation recipe remains follow-up work.
+
+## Initial iOS build lane (2026-11-09)
+
+Captain asked to build the Slint application for the connected iPhone and iterate.
+Home's existing `ios doctor` passed Wi-Fi pairing, Developer Mode, Apple trust
+and provisioning services. A Linux ARM64 iOS cross-build failed on missing Apple
+SDK headers, so the build lane uses GitHub macOS/Xcode and leaves signing with
+Home/Splice. It creates a separate Howl Slint bundle, preserving the installed
+older app. The original mobile qualification boundary above records the state
+before this work, not an instruction to retain the iOS target rejection.
+
+Keep the remote ABI and CPU image presenter. Reuse the exact published composite
+root module and headers with static linkage on iOS, avoiding embedded dylib
+signing. iOS-specific policy is limited to Foundation sandbox storage, public
+CoreText monospace-file discovery and UIKit app/scene detach notifications. No
+fixed private font paths, phone PTY, new provisioning credentials or speculative
+Metal importer is introduced. This is an experimental build lane pending actual
+Apple compilation, installation and device evidence, not an iOS support claim.

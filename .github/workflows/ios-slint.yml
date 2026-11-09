@@ -1,0 +1,55 @@
+name: Howl Slint iOS
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  device:
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: 3
+      HOWL_IOS_OUTPUT: ${{ github.workspace }}/build/ios
+      CARGO_TARGET_DIR: ${{ github.workspace }}/build/cargo-ios
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install exact build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(cat .zigversion)
+          [[ "$version" == 0.17.0 ]]
+          case $(uname -m) in
+            arm64) arch=aarch64; sha=b607e9b9234790a008116ae5bdb71c6243b84b9fb42a53a9e70fde41c06c536a ;;
+            x86_64) arch=x86_64; sha=4f9a1c5269aa17ebda5e6d3c2b89d6cbf36f7d2b22a0306e9ab98f25f95529c6 ;;
+            *) exit 1 ;;
+          esac
+          archive="zig-$arch-macos-$version.tar.xz"
+          curl --fail --location --retry 3 "https://ziglang.org/download/$version/$archive" -o "$RUNNER_TEMP/$archive"
+          echo "$sha  $RUNNER_TEMP/$archive" | shasum -a 256 -c -
+          tar -xf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/zig-$arch-macos-$version" >> "$GITHUB_PATH"
+          rustup toolchain install 1.96.0 --profile minimal --target aarch64-apple-ios
+          rustup default 1.96.0
+          xcodebuild -version
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            build/cargo-ios
+          key: ios-${{ runner.arch }}-rust196-${{ hashFiles('hosts/howl-slint/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            ios-${{ runner.arch }}-rust196-${{ hashFiles('hosts/howl-slint/Cargo.lock') }}-
+      - name: Build unsigned ARM64 application
+        run: hosts/howl-slint/ios/build-unsigned.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: howl-slint-ios
+          path: |
+            build/ios/howl-slint.ipa
+            build/ios/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7

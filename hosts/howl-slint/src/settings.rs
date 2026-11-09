@@ -147,6 +147,7 @@ fn validate_profile(profile: &Profile) -> Result<(), String> {
     Err("Use tcp://IPv4:port or unix:/absolute/socket/path".into())
 }
 
+#[cfg(not(target_os = "ios"))]
 pub(crate) fn desktop_path() -> Result<PathBuf, String> {
     if let Some(path) = std::env::var_os("XDG_CONFIG_HOME").filter(|p| !p.is_empty()) {
         let path = PathBuf::from(path);

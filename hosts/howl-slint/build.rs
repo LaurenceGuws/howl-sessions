@@ -3,7 +3,7 @@ use std::{collections::HashMap, path::PathBuf};
 fn main() {
     let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
     assert!(
-        os == "linux" || os == "android",
+        os == "linux" || os == "android" || os == "ios",
         "unsupported native host target"
     );
     let prefix = PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("howl");
@@ -27,6 +27,52 @@ fn main() {
                 .expect("HOWL_ANDROID_LIBC must name an NDK libc description"),
         );
         println!("cargo:rerun-if-env-changed=HOWL_ANDROID_LIBC");
+    } else if os == "ios" {
+        assert_eq!(
+            std::env::var("TARGET").unwrap(),
+            "aarch64-apple-ios",
+            "iPhone ARM64 is the initial iOS build target"
+        );
+        let output = std::process::Command::new("xcrun")
+            .args(["--sdk", "iphoneos", "--show-sdk-path"])
+            .output()
+            .expect("iOS builds require macOS and Xcode");
+        assert!(output.status.success(), "iPhoneOS SDK lookup failed");
+        let sdk = PathBuf::from(String::from_utf8(output.stdout).unwrap().trim());
+        assert!(
+            sdk.join("usr/include/string.h").is_file(),
+            "iPhoneOS libc headers missing"
+        );
+        let mut cxx = sdk.join("usr/include/c++/v1");
+        if !cxx.join("vector").is_file() {
+            let output = std::process::Command::new("xcrun")
+                .args(["--sdk", "iphoneos", "--find", "clang++"])
+                .output()
+                .expect("Xcode C++ compiler lookup failed");
+            assert!(output.status.success(), "Xcode C++ compiler lookup failed");
+            let clang = PathBuf::from(String::from_utf8(output.stdout).unwrap().trim());
+            cxx = clang
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join("include/c++/v1");
+        }
+        assert!(cxx.join("vector").is_file(), "Xcode libc++ headers missing");
+        zig.args([
+            "-Dtarget=aarch64-ios.16.6",
+            "-Dbundled_text=true",
+            "build-static",
+            "--sysroot",
+        ])
+        .arg(&sdk)
+        .env("SDKROOT", &sdk)
+        .env("C_INCLUDE_PATH", sdk.join("usr/include"))
+        .env(
+            "CPLUS_INCLUDE_PATH",
+            format!("{}:{}", sdk.join("usr/include").display(), cxx.display()),
+        );
+        println!("cargo:rerun-if-env-changed=SDKROOT");
     } else {
         assert_eq!(
             std::env::var("HOST").unwrap(),
@@ -38,18 +84,34 @@ fn main() {
         zig.status().expect("run pinned Zig build").success(),
         "Howl native build failed"
     );
-    cc::Build::new()
+    let mut adapter = cc::Build::new();
+    adapter
         .file("native/remote.c")
         .file("native/cpu.c")
         .include(prefix.join("include"))
         .flag("-std=c11")
-        .warnings_into_errors(true)
-        .compile("slint_terminal");
+        .warnings_into_errors(true);
+    if os == "ios" {
+        adapter.object(prefix.join("lib/howl_sessions_native.o"));
+    }
+    adapter.compile("slint_terminal");
     println!(
         "cargo:rustc-link-search=native={}",
         prefix.join("lib").display()
     );
-    println!("cargo:rustc-link-lib=dylib=howl_sessions_native");
+    if os == "ios" {
+        cc::Build::new()
+            .file("native/ios.m")
+            .flag("-fobjc-arc")
+            .warnings_into_errors(true)
+            .compile("slint_ios");
+        println!("cargo:rustc-link-lib=c++");
+        for framework in ["Foundation", "UIKit", "CoreText", "CoreFoundation"] {
+            println!("cargo:rustc-link-lib=framework={framework}");
+        }
+    } else {
+        println!("cargo:rustc-link-lib=dylib=howl_sessions_native");
+    }
     if os == "linux" {
         println!(
             "cargo:rustc-link-arg=-Wl,-rpath,{}",
@@ -61,6 +123,7 @@ fn main() {
         "native/remote.h",
         "native/cpu.c",
         "native/cpu.h",
+        "native/ios.m",
         "native/build.zig",
         "native/build.zig.zon",
     ] {

@@ -112,3 +112,16 @@ equal RGBA pixels. Visible cursor age is deliberately excluded from that claim.
 The composition also exports `hsc_observe_cached_compressed` for peers that
 explicitly support the new request. The host still uses packed observations;
 pinning this additive release does not switch its wire mode or upgrade a Server.
+
+## iOS linkage
+
+The experimental iOS target builds the same published composition as a relocatable
+object, forwarding its exact headers through Zig's installLibraryHeaders. Cargo
+archives that complete object with the C adapter. Unlike a plain static archive,
+the relocatable link includes the bundled FT/HB objects. It
+does not reimplement the native ABI or alter a downloaded dependency. The
+`build-static -Dbundled_text=true` path can also be exercised on Linux.
+macOS/Xcode supplies the iPhoneOS sysroot and C/C++ headers; Linux headers are
+not an iOS SDK. Apple-target compilation and device behavior remain separate
+qualification gates. The small ARC `ios.m` bridge uses only public Foundation,
+UIKit and CoreText APIs for sandbox paths, font discovery and lifecycle events.

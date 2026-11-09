@@ -1,0 +1,7 @@
+{
+  "workflow": "ios-slint.yml",
+  "artifact": "howl-slint-ios",
+  "ipa": "howl-slint.ipa",
+  "bundle_id": "uk.laurencegouws.howlslint",
+  "require_splice_ready": true
+}

@@ -16,13 +16,13 @@ pub(crate) fn resolve_font(pattern: &str) -> Result<CString, String> {
         }
         return CString::new(pattern).map_err(|e| e.to_string());
     }
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_os = "ios"))]
     {
         Err(format!(
-            "Android requires an explicit font file path; named family {pattern} is not configured"
+            "Mobile requires an explicit font file path; named family {pattern} is not configured"
         ))
     }
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         let output = std::process::Command::new("fc-match")
             .args(["--format=%{family}\n%{style}\n%{file}", "--", pattern])
