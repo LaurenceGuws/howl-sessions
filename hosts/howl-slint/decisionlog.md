@@ -523,3 +523,24 @@ Server and btop remain separate; device-memory snapshots are not memory peaks.
 Hashes were unchanged and all owned processes/seats drained. `peak-results.json`,
 per-run traces, provenance and cleanup receipts are beside the production matrix
 in Home's active workstream. No runtime source changed.
+
+### Keep the CPU blend change small (2026-11-10)
+
+Production phase timing put dense CPU painting at about 547 ms per connection;
+UI-thread work remained substantial, especially for sparse changes. GCC's normal
+-O2 build called the blend helper per mask pixel. Inline fixed RGB assignments
+and one immutable tint snapshot expose those command invariants without a new
+cache, renderer, ABI or ownership path. Exhaustive mask-coverage/tint-alpha tests
+and a captured canonical frame retain exact pixel parity, including unaligned
+output and sentinel bounds. Six rotated replay rounds used about 20.4% less paint
+CPU; inline alone did not provide that improvement.
+
+Three alternating production pairs observed dense host CPU at 28.25% before and
+25.22% after (medians, one core), with observer CPU consistently lower. UI-thread
+variation also contributed, so the entire host delta is not attributed to blend.
+Sparse results overlapped and establish no meaningful speedup. Geometry, fonts,
+producer and optimization remained matched; producer counts are not displayed
+FPS. A separate FemtoVG backend experiment saved CPU but added roughly 52 MiB PSS
+and 32 MiB private memory, so the default backend remains unchanged. Temporary
+phase instrumentation was removed. Samples, isolated replay, hashes and gates
+are in Home's active workstream under `cpu-phase-20261110/`.

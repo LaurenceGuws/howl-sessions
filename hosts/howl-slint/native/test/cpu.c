@@ -78,6 +78,35 @@ static int mask_one_to_one(void) {
     CHECK(cpu_paint(&surface, &info, &c, &u) != 0);
     return 0;
 }
+/* Every mask coverage and tint alpha through the validated 1:1 fast path. */
+static int mask_alpha_equivalence(void) {
+    uint8_t storage[256 * 4 + 2], expected[256 * 4], atlas[256];
+    struct cpu_surface surface = {.pixels = storage + 1};
+    hrc_frame_info info = {.surface_width = 256, .surface_height = 1,
+        .background_rgba = 0xffa35127, .command_count = 1, .upload_count = 1};
+    hrc_upload u = {.pixels = atlas, .pixel_len = sizeof atlas};
+    u.info.resource = u.info.generation = 1;
+    u.info.width = u.info.stride = 256; u.info.height = 1;
+    u.info.format = HRC_ALPHA8;
+    hrc_command c = {.tag = HRC_ALPHA_MASK, .resource = 1, .generation = 1,
+        .source_width = 256, .source_height = 1,
+        .destination_width = 256, .destination_height = 1,
+        .clip_width = 256, .clip_height = 1};
+    for (unsigned i = 0; i < 256; i++) atlas[i] = (uint8_t)i;
+    for (unsigned alpha = 0; alpha < 256; alpha++) {
+        c.color_rgba = alpha << 24 | 0x39a7ed;
+        memset(storage, 0x5a, sizeof storage);
+        for (unsigned i = 0; i < 256; i++) {
+            expected[4*i] = 0x27; expected[4*i+1] = 0x51;
+            expected[4*i+2] = 0xa3; expected[4*i+3] = 255;
+            reference_blend(expected + 4*i, c.color_rgba, atlas[i]);
+        }
+        CHECK(cpu_paint(&surface, &info, &c, &u) == 0);
+        CHECK(memcmp(surface.pixels, expected, sizeof expected) == 0);
+        CHECK(storage[0] == 0x5a && storage[sizeof storage - 1] == 0x5a);
+    }
+    return 0;
+}
 static int background_equivalence(void) {
     uint8_t storage[4 * 7 * 5 + 2];
     /* Deliberately unaligned destination: no typed u32 store is permitted. */
@@ -102,6 +131,7 @@ int main(void) {
     CHECK(background_equivalence() == 0);
     CHECK(blend_equivalence() == 0);
     CHECK(mask_one_to_one() == 0);
+    CHECK(mask_alpha_equivalence() == 0);
     uint8_t pixels[16] = {0};
     struct cpu_surface surface = {.pixels = pixels};
     hrc_frame_info info = {.surface_width = 2, .surface_height = 2, .background_rgba = 0xff000000, .command_count = 1};

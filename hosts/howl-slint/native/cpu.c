@@ -4,7 +4,7 @@
 /* Straight-alpha source-over onto an opaque destination. Canonical RGBA is
  * low-to-high R,G,B,A; alpha-mask commands tint their coverage with that color.
  */
-static void blend(uint8_t *d, uint32_t rgba, unsigned coverage) {
+static inline void blend(uint8_t *d, uint32_t rgba, unsigned coverage) {
   unsigned a = (rgba >> 24) * coverage / 255u;
   if (a == 0) return; /* The surface is already opaque. */
   if (a == 255) {
@@ -12,9 +12,11 @@ static void blend(uint8_t *d, uint32_t rgba, unsigned coverage) {
       d[n] = (uint8_t)(rgba >> (8 * n));
     return;
   }
-  for (unsigned n = 0; n < 3; n++)
-    d[n] = (uint8_t)((((rgba >> (8 * n)) & 255u) * a + d[n] * (255 - a) + 127) /
-                     255);
+  /* Fixed channels let the host C compiler hoist tint extraction out of the
+   * mask loop instead of calling a variable-shift channel loop per pixel. */
+  d[0] = (uint8_t)(((rgba & 255u) * a + d[0] * (255 - a) + 127) / 255);
+  d[1] = (uint8_t)((((rgba >> 8) & 255u) * a + d[1] * (255 - a) + 127) / 255);
+  d[2] = (uint8_t)((((rgba >> 16) & 255u) * a + d[2] * (255 - a) + 127) / 255);
   d[3] = 255;
 }
 uint32_t cpu_paint(struct cpu_surface *p, const hrc_frame_info *f,
@@ -89,11 +91,12 @@ uint32_t cpu_paint(struct cpu_surface *p, const hrc_frame_info *f,
       size_t width = (size_t)(x1 - x0), height = (size_t)(y1 - y0);
       if (sx + width <= u->info.width && sy + height <= u->info.height &&
           (sy + height - 1) * u->info.stride + sx + width <= u->pixel_len) {
+        const uint32_t color = c->color_rgba;
         for (size_t row = 0; row < height; row++) {
           const uint8_t *source = u->pixels + (sy + row) * u->info.stride + sx;
           uint8_t *destination = p->pixels + (((size_t)y0 + row) * p->width + x0) * 4;
           for (size_t column = 0; column < width; column++)
-            blend(destination + column * 4, c->color_rgba, source[column]);
+            blend(destination + column * 4, color, source[column]);
         }
         continue;
       }
