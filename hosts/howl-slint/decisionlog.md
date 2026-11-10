@@ -491,3 +491,35 @@ system RAM. No retry, package installation or settings change followed. The
 partial cache is retained; owned units and private sockets are gone. Three old
 baseline integrity runs passed, but neither qualify current pins nor provide
 runtime benchmark evidence. Android APK/UI qualification remains open.
+
+### Fresh-launch btop peak trace
+
+A further three rotated repetitions per production host traced memory from a
+pre-exec handshake through opening btop and 26 seconds after observed output.
+All nine runs kept the same 128×42 geometry. Status/VmHWM sampling had roughly
+10.1ms cadence (maximum gap 12.38ms); independent smaps_rollup samples had roughly
+250.1ms cadence (maximum gap 253.01ms). There were 29,859 host status samples with
+no read errors. Settled values are final-five-second medians; a separate pilot
+is retained but excluded from these ranges.
+
+Peak VmRSS/VmHWM was 418.3–419.1 MiB for native, 317.2–317.5 MiB for Slint CPU
+and 307.6–308.9 MiB for Slint GPU. Native's peak equaled its settled status RSS;
+Slint settled about 0.7–0.8 MiB below peak. The independently sampled smaps peak
+RSS/PSS/private ranges were respectively:
+- Native: 402.0–402.8 / 167.9–168.7 / 108.7–109.5 MiB.
+- Slint CPU: 306.8–307.2 / 149.0–149.3 / 111.3–111.6 MiB.
+- Slint GPU: 296.8–298.1 / 139.0–140.4 / 101.3–102.8 MiB.
+
+The previously reported roughly 800-MiB native spike was not reproduced in
+these fresh private-seat runs. This does not disprove that physical-desktop
+observation, where geometry, session history and environment may differ.
+Status counters and smaps disagree materially; both are preserved without an
+attribution guess. Status may lag, VmHWM is not timestamped allocation tracing,
+and independently sampled PSS/private peaks need not coincide with RSS peaks.
+Monitoring and screenshots can perturb timing. Filesystem caches were warm;
+first PTY output was bracketed by gate release and the first output screenshot,
+not directly instrumented. No speed, latency or displayed-FPS claim follows.
+Server and btop remain separate; device-memory snapshots are not memory peaks.
+Hashes were unchanged and all owned processes/seats drained. `peak-results.json`,
+per-run traces, provenance and cleanup receipts are beside the production matrix
+in Home's active workstream. No runtime source changed.
