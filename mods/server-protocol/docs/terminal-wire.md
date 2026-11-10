@@ -60,8 +60,9 @@ Frame kinds are:
 | 61 | `snapshot_properties` | endpoint → client |
 | 62 | `observe_packed` | client → endpoint |
 | 63 | `snapshot_packed_data` | endpoint → client |
-| 64 | `observe_delta_compressed` | client → endpoint |
+| 64 | retired; rejected, not an alias | neither |
 | 65 | `snapshot_delta_compressed_data` | endpoint → client |
+| 66 | `observe_delta_packed` | client → endpoint |
 
 Invalid magic, framing version, reserved header bits, frame kind, or a declared
 payload above 1 MiB is a framing failure. The endpoint closes a connection on a
@@ -89,7 +90,7 @@ and accepts only the terminal kinds listed above. The Server queues ready before
 response to already-buffered terminal input.
 
 Control uses kinds 1–13 and an 8 KiB payload ceiling. Terminal interaction uses
-kinds 32–65 and a 1 MiB response ceiling; terminal requests remain at most 64 KiB.
+kinds 32–66 (64 retired/rejected) and a 1 MiB response ceiling; terminal requests remain at most 64 KiB.
 Both phases use the same SRVR version 2 envelope. Wrong-phase kinds are framing
 failures. Version 2 is the complete wire boundary; no legacy Server terminal decoder is kept.
 
@@ -220,39 +221,68 @@ fall back independently to verbatim payloads. The packed bytes are compressed wi
 fastest zlib/DEFLATE. The client inflates and unpacks them back to byte-identical
 `text_v1` before the existing semantic decoder runs.
 
-`observe_delta` is the revision-relative lane. Its `after_revision`
-names the caller's exact baseline. If the endpoint cannot prove that baseline
-against its bounded row mirror, it responds with ordinary `snapshot_raw_data`;
-that fallback is a complete standalone `text_v1` snapshot. When the baseline is
-proven, the endpoint may instead emit `snapshot_delta_data` carrying
-`text_delta_v2`. The endpoint retains one bounded delta-row baseline total, not
-one copy per client. A valid client baseline can therefore still receive a
-complete raw fallback when another delta observer has advanced or replaced the
-endpoint cache; clients must treat that fallback as the normal resynchronization
-path. There is still no feature negotiation.
+`observe_delta` (59) is the raw revision-relative lane: full 58 or delta 60.
+Its `after_revision` names the caller's exact accepted delivery revision/window,
+not the canonical VT revision. If that attachment cannot prove the predecessor,
+the response is a complete standalone `text_v1` baseline. Zero explicitly asks
+for that full resynchronization; the returned delivery revision becomes the new
+baseline, not a literal revision-zero baseline.
 
-### Explicit compressed delta carriage
+Each attached Client lazily owns its own bounded delta provenance and committed
+revision. Live viewport provenance records canonical row generations and link
+membership; historical windows retain exact Cell mirrors. Other observers do
+not replace or revoke that Client's baseline. Body/compression scratch remains
+shared by the terminal Service; no second canonical terminal is created.
+Construction/output/image ownership must complete before the predecessor is
+committed. Failure releases only the affected Client's provisional provenance;
+full-only observation exits that Client's cached mode. Close/reconnect releases
+it. Geometry, bank, history-window or unprovable row provenance causes full
+recovery, never approximate reuse. Canonical PTY/input/lifecycle progress remains
+independent of slow presentation clients.
 
-`observe_delta_compressed` uses the same 12-byte request and exact accepted
-predecessor/history-window rules as `observe_delta`. It is opt-in, not an
-alternative response to an old request. Peers must support these new kinds;
-there is no automatic negotiation, retry, or host default change.
+### Compressed cached carriage (explicit 66)
 
-A full baseline or resynchronization uses `snapshot_raw_data` exactly as before.
-A proven delta instead uses only `snapshot_delta_compressed_data` chunks.
-Concatenate those chunks, read a big-endian u32 uncompressed byte count, then
-inflate the remaining single zlib stream. Both the complete encoded envelope
-and decoded record body are independently bounded by 4 MiB. Require exact output
-length, checksum, end of stream and no trailing bytes. The decoded bytes are
-ordinary `text_delta_v2`: existing row shift, changed rows, reuse markers and
-hyperlinks, decoded against the existing cache. This does not use
-`text_pack_v1`, whose full-text grammar cannot represent delta reuse.
+`observe_delta_packed` (66) uses the same 12-byte Observe payload and exact
+predecessor/history-window rules as 59. It is the sole compressed-cache request.
+A full baseline/resynchronization uses only `snapshot_packed_data` (63): existing
+`text_pack_v1` carriage expands to byte-identical `text_v1`, then existing full
+semantic decoding establishes the baseline. A proven delta uses only
+`snapshot_delta_compressed_data` (65): concatenate chunks, read a big-endian u32
+uncompressed count, and inflate the remaining single zlib stream. Its encoded
+envelope and decoded record body are independently bounded by 4 MiB. Require
+exact output length, checksum, end of stream and no trailing bytes. The decoded
+bytes are existing `text_delta_v2`; delta reuse is not packed through the full
+`text_pack_v1` grammar.
 
-Raw, raw-delta, compressed-delta and other data kinds cannot mix within a cut.
-Compressed delta is valid only after the matching compressed request and exact
-nonzero baseline. Graphics, properties, snapshot begin/end and ownership remain
-unchanged. Failure invalidates provisional rows and predecessor together; a
-fresh attachment or revision-zero request establishes a new full baseline.
+66 accepts only 63 or 65, never 34/58/60; 59 accepts only 58 or 60, never 63/65. Data
+kinds cannot mix within a cut. 65 requires a pending nonzero request and an
+accepted exact predecessor, including geometry/window. Packed full 63 establishes
+the baseline only after complete validation. Graphics, properties, begin/end,
+image identities, per-attachment flags and immutable snapshot ownership are
+unchanged. Malformed/incomplete receive retires the stream; no operation is
+replayed. A post-complete projection failure resets the Client cache while
+leaving a usable stream; a later explicit call may resynchronize with after 0.
+
+### Pre-release wire-floor cut / compatibility
+
+Request 64's former 58/65 contract is **retired and rejected**, never reinterpreted
+as 63/65. The logical Client operation `hsc_observe_cached_compressed` now sends 66;
+the unpublished parallel packed API is removed. Raw 59 and ordinary 32/57/62 retain
+their contracts. Old 64 callers fail against this Server; new 66 calls fail against
+old Servers. Unknown kinds close before terminal dispatch. There is no alias,
+negotiation, probe, automatic retry or fallback. SRVR 2, C ABI 1, an existing symbol
+and AttachReady identity do not establish 66 support: verify the actual pinned
+Client/library and Server source/binary build together before opting in.
+
+This is an authorized pre-release **source** cut, not a deployment. Published
+Protocol 0.1.2-dev / Client 0.1.9-dev expose 64 and each archive had four recorded
+downloads at the 10 November 2026 inventory; actual external/ad-hoc use is unknown.
+Accessible Brommer/Kitten inventory observed no relevant running jobs/processes,
+not universal absence; Note10 identify timed out then failed internally, leaving
+its inventory unknown. No compatibility conclusion is inferred from those gaps.
+The next publication must record the qualifying source commits and artifact
+hashes and verify intended Server endpoints; existing immutable releases are
+not rewritten. No package pin, host default or installed runtime moves here.
 
 ### `snapshot_begin`
 

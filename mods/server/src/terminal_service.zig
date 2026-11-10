@@ -929,7 +929,7 @@ pub const Service = struct {
     fn handleFrame(self: *Service, index: usize, kind: protocol.Kind, payload: []const u8) !void {
         const client = if (self.clients[index]) |*active| active else return;
         switch (kind) {
-            .observe, .observe_raw, .observe_delta, .observe_packed, .observe_delta_compressed => {
+            .observe, .observe_raw, .observe_delta, .observe_packed, .observe_delta_packed => {
                 const request = protocol.decodeObserve(payload) catch {
                     try self.queueResult(client, kind, .malformed);
                     return;
@@ -943,10 +943,10 @@ pub const Service = struct {
                     .observe => .compressed,
                     .observe_raw => .raw,
                     .observe_delta => .delta,
-                    .observe_delta_compressed => .delta_compressed,
+                    .observe_delta_packed => .delta_compressed,
                     .observe_packed => .packed_text,
                     // zig-audit: acknowledge unreachable
-                    // reason: The enclosing request-kind arm admits only observe, observe_raw, observe_delta, observe_packed and observe_delta_compressed; kind is unchanged here.
+                    // reason: The enclosing request-kind arm admits only observe, observe_raw, observe_delta, observe_packed and observe_delta_packed; kind is unchanged here.
                     else => unreachable,
                 };
             },
@@ -1659,7 +1659,7 @@ pub const Service = struct {
                     .compressed => .observe,
                     .raw => .observe_raw,
                     .delta => .observe_delta,
-                    .delta_compressed => .observe_delta_compressed,
+                    .delta_compressed => .observe_delta_packed,
                     .packed_text => .observe_packed,
                 };
                 self.queueResult(client, request_kind, .rejected) catch |failure| {
@@ -1700,7 +1700,6 @@ pub const Service = struct {
         const machine = howl.terminal(self.instance);
         const terminal_view = machine.semanticView(request.history_offset);
         const terminal_revision = machine.semanticSequence();
-        const packed_mode = mode == .packed_text;
         var graphics = machine.images(terminal_view.history_offset);
         const graphics_counts = try countSnapshotGraphics(&graphics);
         const observed_ns = nowNs(self.io);
@@ -1735,10 +1734,10 @@ pub const Service = struct {
             body_bytes > std.math.maxInt(u32))
             return error.SnapshotTooLarge;
 
-        // A compressed-delta request still establishes/resynchronizes with the
-        // existing independently decodable raw full baseline.
+        // One compressed-cache contract: explicit 66 selects full 63 or delta 65.
         const compressed_delta = mode == .delta_compressed and delta_reuse_allowed;
-        const raw = mode == .raw or (delta and !compressed_delta);
+        const packed_mode = mode == .packed_text or (mode == .delta_compressed and !delta_reuse_allowed);
+        const raw = mode == .raw or mode == .delta;
         const compressed: ?codec.text.Compressed = if (raw)
             null
         else
@@ -2261,7 +2260,7 @@ fn expectQueuedText(service: *Service, client: *Client, receiver: *codec.cache.C
         offset += header.payload_len;
         switch (header.kind) {
             .snapshot_begin => begin = try protocol.decodeSnapshotBegin(payload),
-            .snapshot_raw_data, .snapshot_delta_data, .snapshot_delta_compressed_data => {
+            .snapshot_raw_data, .snapshot_delta_data, .snapshot_delta_compressed_data, .snapshot_packed_data => {
                 try std.testing.expectEqual(expected_kind, header.kind);
                 try body.appendSlice(allocator, payload);
             },
@@ -2289,9 +2288,9 @@ fn expectQueuedText(service: *Service, client: *Client, receiver: *codec.cache.C
     const machine = howl.terminal(service.instance);
     const view = machine.semanticView(history);
     try std.testing.expectEqualDeep(vt_encoder.metadata(view, machine.semanticSequence()), begin.?.terminal);
-    const inflated = if (expected_kind == .snapshot_delta_compressed_data) try codec.text.inflateBody(allocator, body.items) else null;
+    const inflated = if (expected_kind == .snapshot_delta_compressed_data) try codec.text.inflateBody(allocator, body.items) else if (expected_kind == .snapshot_packed_data) try codec.text.unpackBody(allocator, body.items) else null;
     defer if (inflated) |bytes| allocator.free(bytes);
-    const actual = try receiver.decode(begin.?.terminal.geometry(), if (expected_kind == .snapshot_raw_data) .full else .delta, inflated orelse body.items);
+    const actual = try receiver.decode(begin.?.terminal.geometry(), if (expected_kind == .snapshot_raw_data or expected_kind == .snapshot_packed_data) .full else .delta, inflated orelse body.items);
     var full: std.ArrayList(u8) = .empty;
     defer full.deinit(allocator);
     const geometry = try vt_encoder.appendText(allocator, &full, machine, history, actual.presentation.cursor_age_ns orelse protocol.text_v1.no_cursor_movement_age_ns);
@@ -2312,6 +2311,8 @@ fn expectDeltaReleased(client: *const Client) !void {
 }
 
 test "attached predecessors isolate row encoding compression and output failures" {
+    const cached_mode: ObserveMode = .delta_compressed;
+    const full_kind: protocol.Kind = .snapshot_packed_data;
     const allocator = std.testing.allocator;
     const instance = try howl.init(allocator, std.testing.environ, .{
         .shell = "/bin/sh",
@@ -2341,14 +2342,14 @@ test "attached predecessors isolate row encoding compression and output failures
     defer ra.deinit();
     var rb = codec.cache.Cache.init(allocator);
     defer rb.deinit();
-    try service.queueTextSnapshot(cb, .{ .after_revision = 0, .history_offset = 1 }, .delta_compressed);
-    try expectQueuedText(&service, cb, &rb, 1, .snapshot_raw_data);
+    try service.queueTextSnapshot(cb, .{ .after_revision = 0, .history_offset = 1 }, cached_mode);
+    try expectQueuedText(&service, cb, &rb, 1, full_kind);
     const b_revision = cb.delta_revision;
     const b_entries = cb.delta_rows.entries.ptr;
     const b_cells = cb.delta_rows.cells.ptr;
     for ([_]enum { encoding, compression, output, graphics }{ .encoding, .compression, .output, .graphics }) |stage| {
-        try service.queueTextSnapshot(ca, .{ .after_revision = 0, .history_offset = 0 }, .delta);
-        try expectQueuedText(&service, ca, &ra, 0, .snapshot_raw_data);
+        try service.queueTextSnapshot(ca, .{ .after_revision = 0, .history_offset = 0 }, cached_mode);
+        try expectQueuedText(&service, ca, &ra, 0, full_kind);
         const after = ca.delta_revision;
         switch (stage) {
             .encoding => service.snapshot_body.clearAndFree(failing.allocator()),
@@ -2361,7 +2362,7 @@ test "attached predecessors isolate row encoding compression and output failures
         }
         failing.has_induced_failure = false;
         failing.fail_index = failing.alloc_index;
-        try std.testing.expectError(if (stage == .output) error.ClientResponseOutOfMemory else error.OutOfMemory, service.queueTextSnapshot(ca, .{ .after_revision = after, .history_offset = 0 }, if (stage == .compression) .delta_compressed else .delta));
+        try std.testing.expectError(if (stage == .output) error.ClientResponseOutOfMemory else error.OutOfMemory, service.queueTextSnapshot(ca, .{ .after_revision = after, .history_offset = 0 }, cached_mode));
         try std.testing.expect(failing.has_induced_failure);
         failing.fail_index = std.math.maxInt(usize);
         try expectDeltaReleased(ca);
@@ -2369,41 +2370,41 @@ test "attached predecessors isolate row encoding compression and output failures
         try std.testing.expectEqual(b_entries, cb.delta_rows.entries.ptr);
         try std.testing.expectEqual(b_cells, cb.delta_rows.cells.ptr);
         // Not just a response-kind check: B still reconstructs the exact full cut.
-        try service.queueTextSnapshot(cb, .{ .after_revision = b_revision, .history_offset = 1 }, .delta_compressed);
+        try service.queueTextSnapshot(cb, .{ .after_revision = b_revision, .history_offset = 1 }, cached_mode);
         try expectQueuedText(&service, cb, &rb, 1, .snapshot_delta_compressed_data);
-        try service.queueTextSnapshot(ca, .{ .after_revision = after, .history_offset = 0 }, .delta_compressed);
-        try expectQueuedText(&service, ca, &ra, 0, .snapshot_raw_data);
+        try service.queueTextSnapshot(ca, .{ .after_revision = after, .history_offset = 0 }, cached_mode);
+        try expectQueuedText(&service, ca, &ra, 0, full_kind);
     }
-    // 59/64 share one attachment's predecessor; a full-only mode exits it.
+    // 59/66 share one attachment's predecessor; a full-only mode exits it.
     for ([_]ObserveMode{ .raw, .compressed, .packed_text }) |mode| {
         try service.queueTextSnapshot(ca, .{ .after_revision = ca.delta_revision, .history_offset = 0 }, .delta);
         try expectQueuedText(&service, ca, &ra, 0, .snapshot_delta_data);
         try service.queueTextSnapshot(ca, .{ .after_revision = 0, .history_offset = 0 }, mode);
         try expectDeltaReleased(ca);
         ca.resetOutput(service.allocator);
-        try service.queueTextSnapshot(ca, .{ .after_revision = b_revision, .history_offset = 0 }, .delta_compressed);
-        try expectQueuedText(&service, ca, &ra, 0, .snapshot_raw_data);
+        try service.queueTextSnapshot(ca, .{ .after_revision = b_revision, .history_offset = 0 }, cached_mode);
+        try expectQueuedText(&service, ca, &ra, 0, full_kind);
         try std.testing.expectEqual(b_revision, cb.delta_revision);
     }
     // Delivery identities are not canonical revisions; exercise foreign/stale
     // numbers independently, including equal deliveries on two attachments.
     service.bumpObservation();
-    try service.queueTextSnapshot(ca, .{ .after_revision = ca.delta_revision, .history_offset = 0 }, .delta_compressed);
+    try service.queueTextSnapshot(ca, .{ .after_revision = ca.delta_revision, .history_offset = 0 }, cached_mode);
     try expectQueuedText(&service, ca, &ra, 0, .snapshot_delta_compressed_data);
-    try service.queueTextSnapshot(cb, .{ .after_revision = ca.delta_revision, .history_offset = 1 }, .delta_compressed);
-    try expectQueuedText(&service, cb, &rb, 1, .snapshot_raw_data);
+    try service.queueTextSnapshot(cb, .{ .after_revision = ca.delta_revision, .history_offset = 1 }, cached_mode);
+    try expectQueuedText(&service, cb, &rb, 1, full_kind);
     try service.queueTextSnapshot(ca, .{ .after_revision = b_revision, .history_offset = 0 }, .delta);
     try expectQueuedText(&service, ca, &ra, 0, .snapshot_raw_data);
-    try service.queueTextSnapshot(cb, .{ .after_revision = 0, .history_offset = 0 }, .delta_compressed);
-    try expectQueuedText(&service, cb, &rb, 0, .snapshot_raw_data);
+    try service.queueTextSnapshot(cb, .{ .after_revision = 0, .history_offset = 0 }, cached_mode);
+    try expectQueuedText(&service, cb, &rb, 0, full_kind);
     const committed = ca.delta_revision;
     var payload: [protocol.payload_bytes.observe]u8 = undefined;
     protocol.encodeObserve(&payload, .{ .after_revision = service.observation_revision + 1, .history_offset = 0 });
-    try service.handleFrame(0, .observe_delta_compressed, &payload);
+    try service.handleFrame(0, .observe_delta_packed, &payload);
     try std.testing.expectEqual(committed, ca.delta_revision);
     try std.testing.expect(ca.delta_rows.complete and ca.observe == null);
     ca.resetOutput(service.allocator);
-    try service.handleFrame(0, .observe_delta_compressed, &.{});
+    try service.handleFrame(0, .observe_delta_packed, &.{});
     try std.testing.expectEqual(committed, ca.delta_revision);
     try std.testing.expect(ca.delta_rows.complete and ca.observe == null);
 }
@@ -2503,17 +2504,20 @@ fn testLiveDelta(compressed: bool) !void {
 
     var observe: [protocol.payload_bytes.observe]u8 = undefined;
     protocol.encodeObserve(&observe, .{ .after_revision = 0, .history_offset = 0 });
-    try peer.sendFrame(&service, if (compressed) .observe_delta_compressed else .observe_delta, &observe);
+    try peer.sendFrame(&service, if (compressed) .observe_delta_packed else .observe_delta, &observe);
 
     var baseline_revision: u64 = 0;
-    var saw_raw = false;
+    var saw_full = false;
     var baseline_complete = false;
     for (0..64) |_| {
         var frame = try awaitTestFrame(&peer, &service);
         defer frame.deinit(allocator);
         switch (frame.kind) {
             .snapshot_begin => baseline_revision = (try protocol.decodeSnapshotBegin(frame.payload)).revision,
-            .snapshot_raw_data => saw_raw = true,
+            .snapshot_raw_data, .snapshot_packed_data => {
+                try std.testing.expectEqual(if (compressed) protocol.Kind.snapshot_packed_data else .snapshot_raw_data, frame.kind);
+                saw_full = true;
+            },
             .snapshot_end => {
                 try std.testing.expectEqual(baseline_revision, (try protocol.decodeSnapshotEnd(frame.payload)).revision);
                 baseline_complete = true;
@@ -2523,7 +2527,7 @@ fn testLiveDelta(compressed: bool) !void {
             else => return error.TestUnexpectedFrame,
         }
     }
-    try std.testing.expect(baseline_complete and saw_raw and baseline_revision != 0);
+    try std.testing.expect(baseline_complete and saw_full and baseline_revision != 0);
     try std.testing.expectEqual(baseline_revision, service.clients[0].?.delta_revision);
 
     var input_payload = [_]u8{ @backingInt(protocol.InputKind.bytes), 'X' };
@@ -2539,7 +2543,7 @@ fn testLiveDelta(compressed: bool) !void {
     try std.testing.expect(service.observation_revision > baseline_revision);
 
     protocol.encodeObserve(&observe, .{ .after_revision = baseline_revision, .history_offset = 0 });
-    try peer.sendFrame(&service, if (compressed) .observe_delta_compressed else .observe_delta, &observe);
+    try peer.sendFrame(&service, if (compressed) .observe_delta_packed else .observe_delta, &observe);
     var delta_body: std.ArrayList(u8) = .empty;
     defer delta_body.deinit(allocator);
     var saw_delta = false;
@@ -2864,7 +2868,7 @@ test "response and snapshot allocation failures retire only the affected Server 
                 .raw => .observe_raw,
                 .compressed => .observe,
                 .delta => .observe_delta,
-                .delta_compressed => .observe_delta_compressed,
+                .delta_compressed => .observe_delta_packed,
                 .packed_text => .observe_packed,
             }, &request);
             // Force a fresh materialization allocation even after a previous mode
@@ -3172,10 +3176,12 @@ test "stalled observer cannot stop canonical synchronized frames or final lifecy
     var receiver = codec.cache.Cache.init(std.testing.allocator);
     defer receiver.deinit();
     try service.queueTextSnapshot(&service.clients[1].?, .{ .after_revision = 0, .history_offset = 0 }, .delta_compressed);
-    try expectQueuedText(&service, &service.clients[1].?, &receiver, 0, .snapshot_raw_data);
+    try expectQueuedText(&service, &service.clients[1].?, &receiver, 0, .snapshot_packed_data);
     const healthy_revision = service.clients[1].?.delta_revision;
     const old_id = service.clients[0].?.id;
-    try peer.sendFrame(&service, .observe_delta_compressed, &observe);
+    // Raw 59 forces backpressure even on a highly compressible grid; healthy 66
+    // still proves independent cached progress and teardown.
+    try peer.sendFrame(&service, .observe_delta, &observe);
     // Deliberately never drain this peer's large snapshot again.
     for (0..10) |_| try service.turn(0);
     const before = service.observation_revision;
@@ -3204,7 +3210,7 @@ test "stalled observer cannot stop canonical synchronized frames or final lifecy
     var fresh = codec.cache.Cache.init(std.testing.allocator);
     defer fresh.deinit();
     try service.queueTextSnapshot(&service.clients[0].?, .{ .after_revision = current, .history_offset = 0 }, .delta_compressed);
-    try expectQueuedText(&service, &service.clients[0].?, &fresh, 0, .snapshot_raw_data);
+    try expectQueuedText(&service, &service.clients[0].?, &fresh, 0, .snapshot_packed_data);
 }
 
 test "DCS frame with pending-wrap-only tail retains burst protection" {
@@ -3293,9 +3299,48 @@ test "compressed delta allocation failure revokes baseline without blocking anot
     }
     try std.testing.expect(complete);
     // Former predecessor is no longer reusable; requested compressed mode must
-    // resynchronize with raw full text rather than emit a delta.
+    // resynchronize with packed full text rather than emit a delta.
     try service.queueTextSnapshot(client, .{ .after_revision = baseline, .history_offset = 0 }, .delta_compressed);
     const data_at = protocol.header_bytes + protocol.payload_bytes.snapshot_begin;
     const header = try protocol.decodeHeader(client.output.items[data_at..][0..protocol.header_bytes]);
-    try std.testing.expectEqual(protocol.Kind.snapshot_raw_data, header.kind);
+    try std.testing.expectEqual(protocol.Kind.snapshot_packed_data, header.kind);
+}
+
+test "retired64 closes only its attachment before dispatch and preserves healthy66 baseline" {
+    const allocator = std.testing.allocator;
+    const instance = try howl.init(allocator, std.testing.environ, .{
+        .shell = "/bin/sh",
+        .command = "exec cat",
+        .rows = 2,
+        .columns = 24,
+        .history_rows = 2,
+    });
+    defer howl.deinit(instance);
+    var service = try Service.init(allocator, std.testing.io, instance);
+    defer service.deinit();
+    var good = try TestPeer.adopt(allocator, &service);
+    defer good.deinit();
+    try expectAttachReady(&good, &service);
+    var receiver = codec.cache.Cache.init(allocator);
+    defer receiver.deinit();
+    const client = &service.clients[0].?;
+    try service.queueTextSnapshot(client, .{ .after_revision = 0, .history_offset = 0 }, .delta_compressed);
+    try expectQueuedText(&service, client, &receiver, 0, .snapshot_packed_data);
+    const revision = client.delta_revision;
+    var old = try TestPeer.adopt(allocator, &service);
+    defer old.deinit();
+    try expectAttachReady(&old, &service);
+    var header: [protocol.header_bytes]u8 = undefined;
+    try protocol.encodeHeader(&header, .{ .kind = .observe_delta_packed, .payload_len = 0 });
+    header[5] = 64;
+    try old.sendAll(&service, &header);
+    for (0..64) |_| {
+        if (service.clients[1] == null) break;
+        try service.turn(0);
+    }
+    try std.testing.expect(service.clients[1] == null);
+    try std.testing.expectError(error.TestPeerClosed, old.readAvailable());
+    try std.testing.expectEqual(revision, client.delta_revision);
+    try service.queueTextSnapshot(client, .{ .after_revision = revision, .history_offset = 0 }, .delta_compressed);
+    try expectQueuedText(&service, client, &receiver, 0, .snapshot_delta_compressed_data);
 }

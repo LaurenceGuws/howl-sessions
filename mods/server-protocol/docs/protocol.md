@@ -20,7 +20,7 @@ or per-Instance listener is introduced.
 
 The envelope uses a 12-byte header: SRVR magic, version 2, one kind byte, two zero
 reserved bytes and a big-endian u32 payload length. Control kinds are 1–13 with an
-8 KiB payload ceiling. Terminal kinds are 32–63 with a 1 MiB response ceiling and
+8 KiB payload ceiling. Terminal kinds are 32–66 (64 retired/rejected) with a 1 MiB response ceiling and
 64 KiB request ceiling. Each phase rejects the other's tags before payload
 admission. Old SRVR version 1 and HWLS version 10 are rejected.
 
@@ -31,3 +31,19 @@ unchanged; Server owns delivery envelopes, revisions and predecessor correlation
 identity, terminal payloads and hostile inputs. Zig proofs cover control model
 operations and ownership; the independent oracle does not claim a second complete
 control implementation.
+
+## Pre-release compressed-cache cut
+
+The sole logical compressed cached operation now explicitly requests 66 and
+receives packed full 63 or compressed delta 65. Request 64 is retired/rejected,
+not reinterpreted. Raw 59 and ordinary 32/57/62 retain their contracts. This is a
+wire-floor incompatibility for old 64 callers/new 66 calls on old Servers, without
+a framing-version or native layout/symbol-set change. SRVR 2/C ABI 1/symbol presence
+are not feature discovery. No negotiation, alias, probe, replay or fallback.
+
+The [authoritative terminal contract](terminal-wire.md#pre-release-wire-floor-cut--compatibility)
+records exact carriage, recovery, independent Client baselines, public 64 release
+availability/unknown use and incomplete deployment inventory. A matching pinned
+Client and verified 66-capable Server source/binary are required before use; record
+commit/artifact hashes at separately authorized publication. No installed runtime,
+existing artifact, package pin or host default is changed by this source cut.

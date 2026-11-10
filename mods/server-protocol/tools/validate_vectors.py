@@ -25,7 +25,7 @@ MAXIMUM_TEXT_SNAPSHOT_BYTES = 4 * 1024 * 1024
 MAXIMUM_PACKED_TEXT_BYTES = MAXIMUM_TEXT_SNAPSHOT_BYTES + 0xFFFF
 
 CONTROL_KINDS = {1: 'hello', 2: 'welcome', 3: 'status', 4: 'status_snapshot', 5: 'observe_tree', 6: 'tree_snapshot', 7: 'create_session', 8: 'close_session', 9: 'create_instance', 10: 'close_instance', 11: 'attach_instance', 12: 'attach_ready', 13: 'control_result'}
-TERMINAL_KINDS = {32: 'observe', 33: 'snapshot_begin', 34: 'snapshot_data', 35: 'snapshot_end', 36: 'input', 37: 'assign_leader', 38: 'resize', 39: 'signal', 40: 'result', 41: 'interaction_state', 42: 'interaction_state_snapshot', 43: 'assign_consequence_leader', 44: 'consequence_observe', 45: 'consequence_begin', 46: 'consequence_data', 47: 'consequence_end', 48: 'consequence_consume', 49: 'consequence_reply', 50: 'text_extract', 51: 'text_extract_data', 52: 'snapshot_graphics', 53: 'image_request', 54: 'image_begin', 55: 'image_data', 56: 'image_end', 57: 'observe_raw', 58: 'snapshot_raw_data', 59: 'observe_delta', 60: 'snapshot_delta_data', 61: 'snapshot_properties', 62: 'observe_packed', 63: 'snapshot_packed_data', 64: 'observe_delta_compressed', 65: 'snapshot_delta_compressed_data'}
+TERMINAL_KINDS = {32: 'observe', 33: 'snapshot_begin', 34: 'snapshot_data', 35: 'snapshot_end', 36: 'input', 37: 'assign_leader', 38: 'resize', 39: 'signal', 40: 'result', 41: 'interaction_state', 42: 'interaction_state_snapshot', 43: 'assign_consequence_leader', 44: 'consequence_observe', 45: 'consequence_begin', 46: 'consequence_data', 47: 'consequence_end', 48: 'consequence_consume', 49: 'consequence_reply', 50: 'text_extract', 51: 'text_extract_data', 52: 'snapshot_graphics', 53: 'image_request', 54: 'image_begin', 55: 'image_data', 56: 'image_end', 57: 'observe_raw', 58: 'snapshot_raw_data', 59: 'observe_delta', 60: 'snapshot_delta_data', 61: 'snapshot_properties', 62: 'observe_packed', 63: 'snapshot_packed_data', 65: 'snapshot_delta_compressed_data', 66: 'observe_delta_packed'}
 KINDS = CONTROL_KINDS | TERMINAL_KINDS
 
 INPUT_KINDS = {1: "bytes", 2: "paste", 3: "key", 4: "mouse", 5: "focus"}
@@ -908,7 +908,7 @@ def decode_fixed_payload(kind: int, payload: bytes) -> dict:
     if kind in CONTROL_KINDS:
         # Control operations have Zig semantic proofs; this corpus witnesses their framing.
         return {"bytes_hex": payload.hex()}
-    if kind in (32, 57, 59, 62, 64):
+    if kind in (32, 57, 59, 62, 66):
         return decode_observe(payload)
     if kind == 33:
         return decode_snapshot_begin(payload)
@@ -978,13 +978,18 @@ def decode_stream(data: bytes) -> dict:
             require(snapshot is not None, "snapshot_data_without_begin")
             require(snapshot["graphics"] is None, "snapshot_graphics_order")
             encoding = {34: "compressed", 58: "raw", 60: "delta", 63: "packed", 65: "delta_compressed"}[kind]
+            pending = snapshot["delta_request"]
+            if pending is not None:
+                allowed = ("packed", "delta_compressed") if pending["compressed"] else ("raw", "delta")
+                require(encoding in allowed, "snapshot_delta_carriage")
             if encoding in ("delta", "delta_compressed"):
                 require(snapshot["delta_request"] is not None, "snapshot_delta_request")
                 require(snapshot["delta_request"]["compressed"] == (encoding == "delta_compressed"), "snapshot_delta_carriage")
             require(snapshot["body_encoding"] is None or snapshot["body_encoding"] == encoding, "snapshot_data_encoding")
             snapshot["body_encoding"] = encoding
-            encoded_limit = MAXIMUM_PACKED_TEXT_BYTES if encoding == "packed" else MAXIMUM_TEXT_SNAPSHOT_BYTES
-            require(len(snapshot["encoded_body"]) + len(payload) <= encoded_limit, "snapshot_text_limit")
+            # Packed expansion has its own larger intermediate bound; every encoded
+            # carriage still shares the codec/Client 4 MiB envelope ceiling.
+            require(len(snapshot["encoded_body"]) + len(payload) <= MAXIMUM_TEXT_SNAPSHOT_BYTES, "snapshot_text_limit")
             snapshot["encoded_body"].extend(payload)
             decoded = {"bytes": len(payload)}
         elif kind == 52:
@@ -1025,8 +1030,8 @@ def decode_stream(data: bytes) -> dict:
         else:
             require(snapshot is None and image_resource is None, "snapshot_interleaved")
             decoded = decode_fixed_payload(kind, payload)
-            if kind in (59, 64):
-                pending_delta_request = dict(decoded, compressed=(kind == 64))
+            if kind in (59, 66):
+                pending_delta_request = dict(decoded, compressed=(kind == 66))
         frames.append({"kind": name, "payload": decoded})
 
     require(snapshot is None, "snapshot_unterminated")

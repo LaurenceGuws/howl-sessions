@@ -68,8 +68,22 @@ These additions use existing C ABI v1 functions. They do not enable graphics in
 Flutter or change Render's backend residency contract; that two-phase staging
 work remains separate.
 
-`hsc_observe_cached_compressed` explicitly opts into compressed revision deltas.
-The peer must implement `observe_delta_compressed`; this is not negotiated or
-automatically retried as another mode. Cache, cancellation and immutable snapshot
-ownership match `hsc_observe_cached`. Existing `hsc_observe` remains packed and
-works with earlier peers.
+## Compressed cached observation: pre-release peer-floor change
+
+`hsc_observe_cached_compressed` / `observeCachedCompressed` is the one logical
+compressed-cache operation. It explicitly sends 66 (`observe_delta_packed`) and
+accepts packed full 63 or compressed delta 65. Full recovery establishes the
+returned delivery revision; nonzero after must name the exact accepted baseline
+and history window. Cache, cancellation, failure reset and independent immutable
+Snapshot ownership match `hsc_observe_cached`. Raw 59 remains 58/60, and existing
+`hsc_observe` remains ordinary packed 62/63. There is no parallel packed-cache API.
+
+Request 64 is retired, not translated. A new Client requires a verified 66-capable
+Server; an old 64 caller cannot use the retired Server contract. C ABI 1, symbol
+presence, SRVR 2 and AttachReady are not discovery. Verify actual pinned/bundled
+Client library and Server build identities; there is no probing, negotiation,
+automatic retry or old-peer fallback. Published Client 0.1.9-dev still implements 64
+and is not rewritten. External/ad-hoc 64 use and Note10 inventory remain unknown;
+accessible Brommer/Kitten observations are not a fleet-wide absence claim. See
+[wire/release implications](../server-protocol/docs/terminal-wire.md#pre-release-wire-floor-cut--compatibility).
+This source cut does not publish packages, change host defaults/pins or deploy.

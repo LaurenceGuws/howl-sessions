@@ -92,10 +92,12 @@ pub const Kind = enum(u8) {
     observe_packed = 62,
     /// Carries Huffman-zlib compressed text_pack_v1 bytes for one packed response.
     snapshot_packed_data = 63,
-    /// Requests revision-relative text_delta_v2 with zlib carriage; raw full fallback.
-    observe_delta_compressed = 64,
+    // 64 is retired: its raw-full/compressed-delta request must not be reinterpreted.
     /// Length-prefixed zlib text_delta_v2, never a standalone full snapshot.
     snapshot_delta_compressed_data = 65,
+    /// Explicit compressed-cache request: packed full 63 or compressed delta 65.
+    /// Requires verified supporting peers; no negotiation or retry.
+    observe_delta_packed = 66,
 };
 
 /// One fixed framing header. Multi-byte integers are big-endian on the wire.
@@ -1573,6 +1575,8 @@ test "header round trips and rejects framing ambiguity" {
     invalid[6] = 1;
     try std.testing.expectError(error.InvalidReservedBits, decodeHeader(&invalid));
     invalid = bytes;
+    invalid[5] = 64;
+    try std.testing.expectError(error.UnknownKind, decodeHeader(&invalid));
     invalid[5] = 0xff;
     try std.testing.expectError(error.UnknownKind, decodeHeader(&invalid));
 }

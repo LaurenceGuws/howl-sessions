@@ -154,24 +154,34 @@ pub fn decode(
             return decodeRecords(allocator, geometry, body);
         },
         .packed_zlib => {
-            if (encoded.len <= wire.text_pack_v1.compressed_header_bytes) return error.InvalidSnapshot;
-            const text_len = readU32(encoded[0..4]);
-            const packed_len = readU32(encoded[4..8]);
-            if (text_len == 0 or text_len > wire.maximum_text_snapshot_bytes or
-                packed_len == 0 or packed_len > wire.text_pack_v1.maximum_body_bytes)
-                return error.SnapshotTooLarge;
-            const packed_body = try inflate(allocator, encoded[wire.text_pack_v1.compressed_header_bytes..], packed_len);
-            defer allocator.free(packed_body);
-            var body: std.ArrayList(u8) = .empty;
-            defer body.deinit(allocator);
-            wire.unpackTextV1(allocator, packed_body, text_len, &body) catch |failure| switch (failure) {
-                error.SnapshotTooLarge => return error.SnapshotTooLarge,
-                error.OutOfMemory => return error.OutOfMemory,
-                else => return error.InvalidSnapshot,
-            };
-            return decodeRecords(allocator, geometry, body.items);
+            const body = try unpackBody(allocator, encoded);
+            defer allocator.free(body);
+            return decodeRecords(allocator, geometry, body);
         },
     }
+}
+
+/// Expands existing packed-zlib carriage to exact raw text_v1 records.
+/// Owns no decoded cells or baseline; caller owns the returned allocation.
+pub fn unpackBody(allocator: std.mem.Allocator, encoded: []const u8) values.Error![]u8 {
+    if (encoded.len > wire.maximum_text_snapshot_bytes) return error.SnapshotTooLarge;
+    if (encoded.len <= wire.text_pack_v1.compressed_header_bytes) return error.InvalidSnapshot;
+    const text_len = readU32(encoded[0..4]);
+    const packed_len = readU32(encoded[4..8]);
+    if (text_len == 0 or text_len > wire.maximum_text_snapshot_bytes or
+        packed_len == 0 or packed_len > wire.text_pack_v1.maximum_body_bytes)
+        return error.SnapshotTooLarge;
+    const packed_body = try inflate(allocator, encoded[wire.text_pack_v1.compressed_header_bytes..], packed_len);
+    defer allocator.free(packed_body);
+    // Successful unpacking validates this exact size; transfer without shrink/copy.
+    var body = try std.ArrayList(u8).initCapacity(allocator, text_len);
+    defer body.deinit(allocator);
+    wire.unpackTextV1(allocator, packed_body, text_len, &body) catch |failure| switch (failure) {
+        error.SnapshotTooLarge => return error.SnapshotTooLarge,
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return error.InvalidSnapshot,
+    };
+    return body.toOwnedSliceAssert();
 }
 
 /// Unwraps one bounded length-prefixed zlib record body without interpreting
@@ -636,4 +646,22 @@ test "compression rejects empty oversized and malformed packed bodies then recov
     const recovered = try compressor.compress(.packed_zlib, body);
     try std.testing.expect(recovered.size() <= wire.maximum_text_snapshot_bytes);
     try std.testing.expectEqual(body.len, readU32(recovered.prefix()[0..4]));
+}
+
+fn unpackAllocationProof(allocator: std.mem.Allocator, encoded: []const u8, expected: []const u8) !void {
+    const body = try unpackBody(allocator, encoded);
+    defer allocator.free(body);
+    try std.testing.expectEqualSlices(u8, expected, body);
+}
+test "packed expansion returns exact independently owned raw records and unwinds OOM" {
+    const allocator = std.testing.allocator;
+    const raw = try testBody(allocator);
+    defer allocator.free(raw);
+    const encoded = try testEncode(allocator, .packed_zlib, raw);
+    defer allocator.free(encoded);
+    try std.testing.checkAllAllocationFailures(allocator, unpackAllocationProof, .{ encoded, raw });
+    const body = try unpackBody(allocator, encoded);
+    defer allocator.free(body);
+    @memset(encoded, 0);
+    try std.testing.expectEqualSlices(u8, raw, body);
 }

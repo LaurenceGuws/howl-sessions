@@ -93,14 +93,17 @@ pub const View = struct {
     row_shift: ?u16 = null,
 };
 
+/// Fixed request contract, not adaptive per-frame codec policy.
+pub const CachedMode = enum { raw_delta, compressed_delta };
+
 const CacheBaseline = struct {
     revision: u64,
     history_offset: u32,
 };
 
-/// Reuses already-validated row facts across Server raw/delta observations.
+/// Reuses already-validated row facts across Server full/delta observations.
 ///
-/// Complete raw snapshots establish a standalone baseline. Explicit delta bodies
+/// Complete raw or packed snapshots establish a standalone baseline. Delta bodies
 /// may then reuse rows from the exact revision named by the ordered request; full
 /// row records are still compared byte-for-byte and decoded only when changed.
 /// Geometry changes invalidate the complete row cache. Invalid input likewise
@@ -112,7 +115,7 @@ pub const RawCache = struct {
     decoded_text: codec.cache.Cache,
     baseline: ?CacheBaseline = null,
     pending_delta: ?CacheBaseline = null,
-    compressed_delta: bool = false,
+    mode: CachedMode = .raw_delta,
     graphics: Graphics = .{},
     properties_storage: []u8 = &.{},
 
@@ -130,10 +133,10 @@ pub const RawCache = struct {
         self.* = undefined;
     }
 
-    /// Receives one previously armed complete-raw or delta observation.
+    /// Receives one previously armed complete-full or delta observation.
     ///
     /// Delta carriage is accepted only for the explicitly requested mode and
-    /// exact predecessor/history window. Raw full fallback is standalone.
+    /// exact predecessor/history window. Raw or packed full recovery is standalone.
     pub fn receive(self: *RawCache, connection: *client.Connection) Error!View {
         errdefer client.retire(connection);
         return self.receiveFrom(connection);
@@ -156,7 +159,7 @@ pub const RawCache = struct {
         if (begin_frame.kind != .snapshot_begin) return error.UnexpectedFrame;
         const begin = try protocol.decodeSnapshotBegin(begin_frame.payload);
 
-        const BodyEncoding = enum { none, raw, delta, delta_compressed };
+        const BodyEncoding = enum { none, raw, delta, delta_compressed, packed_full };
         var body_encoding: BodyEncoding = .none;
         var next_properties: ?[]u8 = null;
         errdefer if (next_properties) |value| self.allocator.free(value);
@@ -167,18 +170,22 @@ pub const RawCache = struct {
             defer frame.deinit();
             try accountFrame(&total_bytes, frame.payload.len);
             switch (frame.kind) {
-                .snapshot_raw_data, .snapshot_delta_data, .snapshot_delta_compressed_data => {
+                .snapshot_raw_data, .snapshot_delta_data, .snapshot_delta_compressed_data, .snapshot_packed_data => {
                     if (next_graphics != null) return error.InvalidSnapshot;
                     const encoding: BodyEncoding = switch (frame.kind) {
                         .snapshot_delta_data => .delta,
                         .snapshot_delta_compressed_data => .delta_compressed,
                         .snapshot_raw_data => .raw,
+                        .snapshot_packed_data => .packed_full,
                         // zig-audit: acknowledge unreachable
-                        // reason: The enclosing arm admits only these three data kinds.
+                        // reason: The enclosing arm admits only these four data kinds.
                         else => unreachable,
                     };
-                    if ((encoding == .delta_compressed and !self.compressed_delta) or
-                        (encoding == .delta and self.compressed_delta)) return error.InvalidSnapshot;
+                    if ((encoding == .delta_compressed and self.mode == .raw_delta) or
+                        (encoding == .delta and self.mode != .raw_delta) or
+                        (encoding == .raw and self.mode != .raw_delta) or
+                        (encoding == .packed_full and (self.mode != .compressed_delta or pending_delta == null)))
+                        return error.InvalidSnapshot;
                     if (body_encoding != .none and body_encoding != encoding)
                         return error.InvalidSnapshot;
                     body_encoding = encoding;
@@ -213,10 +220,11 @@ pub const RawCache = struct {
                             !self.decoded_text.canReuse(begin.terminal.geometry()))
                             return error.InvalidSnapshot;
                     }
-                    const inflated = if (body_encoding == .delta_compressed)
-                        try codec.text.inflateBody(self.allocator, self.text_body.items)
-                    else
-                        null;
+                    const inflated = switch (body_encoding) {
+                        .delta_compressed => try codec.text.inflateBody(self.allocator, self.text_body.items),
+                        .packed_full => try codec.text.unpackBody(self.allocator, self.text_body.items),
+                        else => null,
+                    };
                     defer if (inflated) |body| self.allocator.free(body);
                     var result = try self.decodeRaw(
                         begin,
@@ -289,18 +297,18 @@ pub const RawCache = struct {
         after_revision: u64,
         history_offset: u32,
     ) Error!void {
-        return self.sendCachedRequest(connection, after_revision, history_offset, false);
+        return self.sendCachedRequest(connection, after_revision, history_offset, .raw_delta);
     }
 
-    /// Explicit opt-in; peers must support compressed delta carriage. Full raw
-    /// resynchronization and exact predecessor checks remain unchanged.
+    /// Explicit request 66 requires a verified supporting peer. Packed full recovery
+    /// and compressed deltas retain the same exact predecessor/ownership contract.
     pub fn sendCompressedDeltaRequest(
         self: *RawCache,
         connection: *client.Connection,
         after_revision: u64,
         history_offset: u32,
     ) Error!void {
-        return self.sendCachedRequest(connection, after_revision, history_offset, true);
+        return self.sendCachedRequest(connection, after_revision, history_offset, .compressed_delta);
     }
 
     fn sendCachedRequest(
@@ -308,7 +316,7 @@ pub const RawCache = struct {
         connection: *client.Connection,
         after_revision: u64,
         history_offset: u32,
-        compressed: bool,
+        mode: CachedMode,
     ) Error!void {
         if (self.pending_delta != null) return error.ObservationPending;
         if (after_revision != 0) {
@@ -321,8 +329,11 @@ pub const RawCache = struct {
             .after_revision = after_revision,
             .history_offset = history_offset,
         });
-        try connection.send(if (compressed) .observe_delta_compressed else .observe_delta, &payload);
-        self.compressed_delta = compressed;
+        try connection.send(switch (mode) {
+            .raw_delta => .observe_delta,
+            .compressed_delta => .observe_delta_packed,
+        }, &payload);
+        self.mode = mode;
         self.pending_delta = .{
             .revision = after_revision,
             .history_offset = history_offset,
@@ -1100,20 +1111,24 @@ test "compressed delta reuses canonical rows and rejects malformed carriage or b
     defer allocator.free(delta);
     const compressed = try testCompressedDelta(allocator, delta);
     defer allocator.free(compressed);
+    const packed_bytes = try testPackedFull(allocator, full);
+    defer allocator.free(packed_bytes);
     const Case = enum { valid, truncated, checksum, oversized, extra_bytes, wrong_revision, wrong_window, wrong_geometry, unarmed, wrong_mode, mixed };
     for (std.enums.values(Case)) |case| {
         var begin = testRowBegin(1);
         begin.revision = 100;
         begin.terminal.rows = 2;
-        const first_packet = try testCachedFrames(allocator, begin, .snapshot_raw_data, full, .{});
+        const first_packet = try testCachedFrames(allocator, begin, .snapshot_packed_data, packed_bytes, .{});
         defer allocator.free(first_packet);
         var cache = RawCache.init(allocator);
         defer cache.deinit();
+        cache.mode = .compressed_delta;
+        cache.pending_delta = .{ .revision = 0, .history_offset = 0 };
         var first_reader = BufferedFrames{ .bytes = first_packet };
         const first = try cache.receiveFrom(&first_reader);
         const retained = first.rows[1].cells.ptr;
         cache.pending_delta = .{ .revision = 100, .history_offset = 0 };
-        cache.compressed_delta = true;
+        cache.mode = .compressed_delta;
         begin.revision = 101;
         const bytes = try allocator.dupe(u8, compressed);
         defer allocator.free(bytes);
@@ -1132,7 +1147,7 @@ test "compressed delta reuses canonical rows and rejects malformed carriage or b
             .wrong_window => cache.pending_delta.?.history_offset = 1,
             .wrong_geometry => begin.terminal.columns += 1,
             .unarmed => cache.pending_delta = null,
-            .wrong_mode => cache.compressed_delta = false,
+            .wrong_mode => cache.mode = .raw_delta,
             else => {},
         }
         const packet = try testCachedFrames(allocator, begin, .snapshot_delta_compressed_data, body, .{});
@@ -1170,18 +1185,22 @@ fn compressedCacheAllocationProof(allocator: std.mem.Allocator) !void {
     var begin = testRowBegin(1);
     begin.terminal.rows = 2;
     begin.revision = 100;
-    const baseline = try testCachedFrames(allocator, begin, .snapshot_raw_data, full, .{});
+    const packed_baseline = try testPackedFull(allocator, full);
+    defer allocator.free(packed_baseline);
+    const baseline = try testCachedFrames(allocator, begin, .snapshot_packed_data, packed_baseline, .{});
     defer allocator.free(baseline);
     begin.revision = 101;
     const packet = try testCachedFrames(allocator, begin, .snapshot_delta_compressed_data, compressed, .{});
     defer allocator.free(packet);
     var cache = RawCache.init(allocator);
     defer cache.deinit();
+    cache.mode = .compressed_delta;
+    cache.pending_delta = .{ .revision = 0, .history_offset = 0 };
     var baseline_reader = BufferedFrames{ .bytes = baseline };
     const first = try cache.receiveFrom(&baseline_reader);
     try std.testing.expectEqual(@as(u32, 'A'), first.rows[0].cells[0].scalars[0]);
     cache.pending_delta = .{ .revision = 100, .history_offset = 0 };
-    cache.compressed_delta = true;
+    cache.mode = .compressed_delta;
     var reader = BufferedFrames{ .bytes = packet };
     const result = cache.receiveFrom(&reader) catch |err| {
         try std.testing.expect(cache.baseline == null and cache.pending_delta == null);
@@ -1192,4 +1211,91 @@ fn compressedCacheAllocationProof(allocator: std.mem.Allocator) !void {
 
 test "compressed cached transaction releases every failed allocation prefix" {
     try std.testing.checkAllAllocationFailures(std.testing.allocator, compressedCacheAllocationProof, .{});
+}
+
+fn testPackedFull(allocator: std.mem.Allocator, body: []const u8) ![]u8 {
+    var compressor = try codec.text.Compressor.init(allocator);
+    defer compressor.deinit();
+    const compressed = try compressor.compress(.packed_zlib, body);
+    return std.mem.concat(allocator, u8, &.{ compressed.prefix(), compressed.data });
+}
+
+test "packed cached full validates framing carriage and strict request mode before baseline commit" {
+    const allocator = std.testing.allocator;
+    const raw = try testRawCacheBody(allocator, 'A', 'Z');
+    defer allocator.free(raw);
+    const packed_bytes = try testPackedFull(allocator, raw);
+    defer allocator.free(packed_bytes);
+    const Case = enum { valid, checksum, truncated, trailing, packed_length, text_length, end_mismatch, partial, mixed, raw_mode, unarmed, wrong_kind };
+    for (std.enums.values(Case)) |case| {
+        var begin = testRowBegin(1);
+        begin.terminal.rows = 2;
+        const bytes = try allocator.dupe(u8, packed_bytes);
+        defer allocator.free(bytes);
+        var body: []const u8 = bytes;
+        var extra: ?[]u8 = null;
+        defer if (extra) |v| allocator.free(v);
+        switch (case) {
+            .checksum => bytes[bytes.len - 1] ^= 1,
+            .truncated => body = bytes[0 .. bytes.len - 1],
+            .trailing => {
+                extra = try std.mem.concat(allocator, u8, &.{ bytes, &.{0} });
+                body = extra.?;
+            },
+            .packed_length => @memset(bytes[4..8], 0xff),
+            .text_length => @memset(bytes[0..4], 0xff),
+            else => {},
+        }
+        const packet = try testCachedFrames(allocator, begin, if (case == .wrong_kind) .snapshot_raw_data else .snapshot_packed_data, body, .{});
+        defer allocator.free(packet);
+        if (case == .end_mismatch) protocol.encodeSnapshotEnd(packet[packet.len - protocol.payload_bytes.snapshot_end ..][0..protocol.payload_bytes.snapshot_end], .{ .revision = 99 });
+        var mixed: ?[]u8 = null;
+        defer if (mixed) |v| allocator.free(v);
+        if (case == .mixed) {
+            const at = protocol.header_bytes + protocol.payload_bytes.snapshot_begin;
+            var header: [protocol.header_bytes]u8 = undefined;
+            try protocol.encodeHeader(&header, .{ .kind = .snapshot_delta_compressed_data, .payload_len = 1 });
+            mixed = try std.mem.concat(allocator, u8, &.{ packet[0..at], &header, &.{0}, packet[at..] });
+        }
+        var cache = RawCache.init(allocator);
+        defer cache.deinit();
+        cache.mode = if (case == .raw_mode) .raw_delta else .compressed_delta;
+        if (case != .unarmed) cache.pending_delta = .{ .revision = 0, .history_offset = 0 };
+        var reader = BufferedFrames{ .bytes = if (case == .partial) packet[0 .. packet.len - 1] else mixed orelse packet };
+        if (case == .valid) {
+            const view = try cache.receiveFrom(&reader);
+            try std.testing.expectEqual(@as(u32, 'A'), view.rows[0].cells[0].scalars[0]);
+            try std.testing.expectEqual(@as(u64, 1), cache.baseline.?.revision);
+            @memset(bytes, 0);
+            try std.testing.expectEqual(@as(u32, 'Z'), view.rows[1].cells[0].scalars[0]);
+        } else {
+            try std.testing.expectError(if (case == .packed_length or case == .text_length) error.SnapshotTooLarge else error.InvalidSnapshot, cache.receiveFrom(&reader));
+            try std.testing.expect(cache.baseline == null and cache.pending_delta == null);
+            try std.testing.expect(!cache.decoded_text.canReuse(begin.terminal.geometry()));
+        }
+    }
+}
+
+fn packedCacheAllocationProof(allocator: std.mem.Allocator) !void {
+    const raw = try testRawCacheBody(std.testing.allocator, 'A', 'Z');
+    defer std.testing.allocator.free(raw);
+    const packed_bytes = try testPackedFull(std.testing.allocator, raw);
+    defer std.testing.allocator.free(packed_bytes);
+    var begin = testRowBegin(1);
+    begin.terminal.rows = 2;
+    const packet = try testCachedFrames(std.testing.allocator, begin, .snapshot_packed_data, packed_bytes, .{});
+    defer std.testing.allocator.free(packet);
+    var cache = RawCache.init(allocator);
+    defer cache.deinit();
+    cache.mode = .compressed_delta;
+    cache.pending_delta = .{ .revision = 0, .history_offset = 0 };
+    var reader = BufferedFrames{ .bytes = packet };
+    const view = cache.receiveFrom(&reader) catch |err| {
+        try std.testing.expect(cache.baseline == null and cache.pending_delta == null);
+        return err;
+    };
+    try std.testing.expectEqual(@as(u32, 'A'), view.rows[0].cells[0].scalars[0]);
+}
+test "packed cached full unwinds each allocation prefix" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, packedCacheAllocationProof, .{});
 }

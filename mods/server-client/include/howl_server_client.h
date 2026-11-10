@@ -344,9 +344,10 @@ uint32_t hsc_cache_create(uint32_t version, hsc_attachment *, hsc_cache **out);
 void hsc_cache_release(hsc_cache **);
 uint32_t hsc_observe_cached(hsc_attachment *, hsc_cache *, uint64_t after_revision,
     uint32_t history_offset, hsc_snapshot **out);
-/* Explicit compressed-delta wire opt-in, requiring a supporting Server.
+/* Explicit request 66 (packed full 63 / compressed delta 65); requires a verified supporting Server build.
  * Same cache identity/baseline and immutable snapshot contract as above.
- * Full raw fallback establishes/resynchronizes the baseline. No negotiation or
+ * Full packed recovery establishes the returned delivery revision. ABI 1/symbol presence is not discovery.
+ * Retired request 64 is not supported. No negotiation or
  * implicit retry against an older Server is performed. */
 uint32_t hsc_observe_cached_compressed(hsc_attachment *, hsc_cache *, uint64_t after_revision,
     uint32_t history_offset, hsc_snapshot **out);

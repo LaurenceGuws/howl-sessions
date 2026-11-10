@@ -74,21 +74,21 @@ pub fn releaseCache(cache: *Cache) void {
 /// Completes one raw/delta transaction and copies an independent immutable view.
 /// Pre-I/O rejection preserves cache; any later failure resets it for revision-zero retry.
 pub fn observeCached(cache: *Cache, connection: *terminal.Connection, result_allocator: std.mem.Allocator, after: u64, offset: u32) Error!*view.Snapshot {
-    return observeCachedMode(cache, connection, result_allocator, after, offset, false);
+    return observeCachedMode(cache, connection, result_allocator, after, offset, .raw_delta);
 }
 
 /// Same cache/snapshot ownership with explicit compressed-delta wire opt-in.
 pub fn observeCachedCompressed(cache: *Cache, connection: *terminal.Connection, result_allocator: std.mem.Allocator, after: u64, offset: u32) Error!*view.Snapshot {
-    return observeCachedMode(cache, connection, result_allocator, after, offset, true);
+    return observeCachedMode(cache, connection, result_allocator, after, offset, .compressed_delta);
 }
 
-fn observeCachedMode(cache: *Cache, connection: *terminal.Connection, result_allocator: std.mem.Allocator, after: u64, offset: u32, compressed: bool) Error!*view.Snapshot {
+fn observeCachedMode(cache: *Cache, connection: *terminal.Connection, result_allocator: std.mem.Allocator, after: u64, offset: u32, mode: terminal.rich.CachedMode) Error!*view.Snapshot {
     const state = cacheImpl(cache);
     if (!std.meta.eql(state.ready, connection.identity())) return error.InvalidArgument;
-    const sent = if (compressed)
-        state.raw.sendCompressedDeltaRequest(connection, after, offset)
-    else
-        state.raw.sendDeltaRequest(connection, after, offset);
+    const sent = switch (mode) {
+        .raw_delta => state.raw.sendDeltaRequest(connection, after, offset),
+        .compressed_delta => state.raw.sendCompressedDeltaRequest(connection, after, offset),
+    };
     sent catch |failure| switch (failure) {
         error.DeltaBaselineMismatch => return error.InvalidArgument,
         else => return failure,
@@ -833,77 +833,94 @@ test "cached row rotation preserves independent predecessor mask and values" {
 
 test "complete ready record binding rejects every different occurrence before I/O" {
     if (comptime @import("builtin").os.tag != .linux) return;
-    var original = try SocketFixture.init(std.testing.allocator, testReady());
-    defer original.deinit();
-    const cache = try createCache(std.testing.allocator, original.connection);
-    defer releaseCache(cache);
-    inline for (.{ "server_id", "session_id", "instance_id", "tree_revision", "client_id" }) |field| {
-        var ready = testReady();
-        @field(ready, field) += 1;
-        var other = try SocketFixture.init(std.testing.allocator, ready);
-        defer other.deinit();
-        try std.testing.expectError(error.InvalidArgument, observeCached(cache, other.connection, std.testing.allocator, 0, 0));
-        try other.expectNoRequest();
-        try std.testing.expect((try other.connection.readinessFd()) >= 0);
+    for ([_]bool{ false, true }) |packed_mode| {
+        const observe: *const @TypeOf(observeCached) = if (packed_mode) observeCachedCompressed else observeCached;
+        var original = try SocketFixture.init(std.testing.allocator, testReady());
+        defer original.deinit();
+        const cache = try createCache(std.testing.allocator, original.connection);
+        defer releaseCache(cache);
+        inline for (.{ "server_id", "session_id", "instance_id", "tree_revision", "client_id" }) |field| {
+            var ready = testReady();
+            @field(ready, field) += 1;
+            var other = try SocketFixture.init(std.testing.allocator, ready);
+            defer other.deinit();
+            try std.testing.expectError(error.InvalidArgument, observe(cache, other.connection, std.testing.allocator, 0, 0));
+            try other.expectNoRequest();
+            try std.testing.expect((try other.connection.readinessFd()) >= 0);
+        }
+        try std.testing.expectError(error.InvalidArgument, observe(cache, original.connection, std.testing.allocator, 1, 0));
+        try original.expectNoRequest();
     }
-    try std.testing.expectError(error.InvalidArgument, observeCached(cache, original.connection, std.testing.allocator, 1, 0));
-    try original.expectNoRequest();
 }
-fn cachedAllocationProof(allocator: std.mem.Allocator) !void {
+fn cachedAllocationProof(allocator: std.mem.Allocator, packed_mode: bool) !void {
     var fixture = try SocketFixture.init(std.testing.allocator, testReady());
     defer fixture.deinit();
     const cache = try createCache(allocator, fixture.connection);
     defer releaseCache(cache);
     const body = try rawBody('A', 'Z');
-    try fixture.snapshot(100, .snapshot_raw_data, &body);
-    const snapshot = try observeCached(cache, fixture.connection, allocator, 0, 0);
+    const packed_bytes = try packedTestCarriage(std.testing.allocator, &body);
+    defer std.testing.allocator.free(packed_bytes);
+    try fixture.snapshot(100, if (packed_mode) .snapshot_packed_data else .snapshot_raw_data, if (packed_mode) packed_bytes else &body);
+    const observe: *const @TypeOf(observeCached) = if (packed_mode) observeCachedCompressed else observeCached;
+    const snapshot = try observe(cache, fixture.connection, allocator, 0, 0);
     defer view.deinit(snapshot);
     try std.testing.expectEqual(@as(u32, 'A'), view.scalars(snapshot)[0]);
 }
 test "cached receive and independent projection unwind every cache allocation prefix" {
     if (comptime @import("builtin").os.tag != .linux) return;
-    try std.testing.checkAllAllocationFailures(std.testing.allocator, cachedAllocationProof, .{});
+    for ([_]bool{ false, true }) |packed_mode|
+        try std.testing.checkAllAllocationFailures(std.testing.allocator, cachedAllocationProof, .{packed_mode});
 }
 
 test "post-complete projection OOM resets cache, preserves stream and requires zero retry" {
     if (comptime @import("builtin").os.tag != .linux) return;
-    var fixture = try SocketFixture.init(std.testing.allocator, testReady());
-    defer fixture.deinit();
-    const cache = try createCache(std.testing.allocator, fixture.connection);
-    defer releaseCache(cache);
-    const body = try rawBody('A', 'Z');
-    try fixture.snapshot(100, .snapshot_raw_data, &body);
-    const first = try observeCached(cache, fixture.connection, std.testing.allocator, 0, 0);
-    defer view.deinit(first);
-    try fixture.consumeRequest();
-    try fixture.snapshot(101, .snapshot_raw_data, &body);
-    // Snapshot and mutable cache are distinct owners. Fail only the independent
-    // projection allocator after the real receiver has accepted its response.
-    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
-    try std.testing.expectError(error.OutOfMemory, observeCached(cache, fixture.connection, failing.allocator(), 100, 0));
-    try fixture.consumeRequest();
-    try std.testing.expect(failing.has_induced_failure);
-    try std.testing.expect(cacheImpl(cache).raw.baseline == null and cacheImpl(cache).raw.pending_delta == null);
-    try std.testing.expect((try fixture.connection.readinessFd()) >= 0);
-    try std.testing.expectEqual(@as(u32, 'A'), view.scalars(first)[0]);
-    try std.testing.expectError(error.InvalidArgument, observeCached(cache, fixture.connection, std.testing.allocator, 101, 0));
-    try fixture.expectNoRequest();
-    try fixture.snapshot(102, .snapshot_raw_data, &body);
-    const recovered = try observeCached(cache, fixture.connection, std.testing.allocator, 0, 0);
-    defer view.deinit(recovered);
-    try std.testing.expect(changes(recovered).base_revision == 0);
+    for ([_]bool{ false, true }) |packed_mode| {
+        const observe: *const @TypeOf(observeCached) = if (packed_mode) observeCachedCompressed else observeCached;
+        const full_kind: terminal.protocol.Kind = if (packed_mode) .snapshot_packed_data else .snapshot_raw_data;
+        var fixture = try SocketFixture.init(std.testing.allocator, testReady());
+        defer fixture.deinit();
+        const cache = try createCache(std.testing.allocator, fixture.connection);
+        defer releaseCache(cache);
+        const body = try rawBody('A', 'Z');
+        const packed_bytes = try packedTestCarriage(std.testing.allocator, &body);
+        defer std.testing.allocator.free(packed_bytes);
+        const carriage: []const u8 = if (packed_mode) packed_bytes else &body;
+        try fixture.snapshot(100, full_kind, carriage);
+        const first = try observe(cache, fixture.connection, std.testing.allocator, 0, 0);
+        defer view.deinit(first);
+        try fixture.consumeKind(if (packed_mode) .observe_delta_packed else .observe_delta);
+        try fixture.snapshot(101, full_kind, carriage);
+        // Snapshot and mutable cache are distinct owners. Fail only the independent
+        // projection allocator after the real receiver has accepted its response.
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
+        try std.testing.expectError(error.OutOfMemory, observe(cache, fixture.connection, failing.allocator(), 100, 0));
+        try fixture.consumeKind(if (packed_mode) .observe_delta_packed else .observe_delta);
+        try std.testing.expect(failing.has_induced_failure);
+        try std.testing.expect(cacheImpl(cache).raw.baseline == null and cacheImpl(cache).raw.pending_delta == null);
+        try std.testing.expect((try fixture.connection.readinessFd()) >= 0);
+        try std.testing.expectEqual(@as(u32, 'A'), view.scalars(first)[0]);
+        try std.testing.expectError(error.InvalidArgument, observe(cache, fixture.connection, std.testing.allocator, 101, 0));
+        try fixture.expectNoRequest();
+        try fixture.snapshot(102, full_kind, carriage);
+        const recovered = try observe(cache, fixture.connection, std.testing.allocator, 0, 0);
+        defer view.deinit(recovered);
+        try std.testing.expect(changes(recovered).base_revision == 0);
+    }
 }
 
 test "malformed cached response invalidates baseline and retires stream" {
     if (comptime @import("builtin").os.tag != .linux) return;
-    var fixture = try SocketFixture.init(std.testing.allocator, testReady());
-    defer fixture.deinit();
-    const cache = try createCache(std.testing.allocator, fixture.connection);
-    defer releaseCache(cache);
-    try fixture.send(.snapshot_end, &.{});
-    try std.testing.expectError(error.UnexpectedFrame, observeCached(cache, fixture.connection, std.testing.allocator, 0, 0));
-    try std.testing.expect(cacheImpl(cache).raw.baseline == null);
-    try std.testing.expectError(error.ConnectionRetired, fixture.connection.readinessFd());
+    for ([_]bool{ false, true }) |packed_mode| {
+        const observe: *const @TypeOf(observeCached) = if (packed_mode) observeCachedCompressed else observeCached;
+        var fixture = try SocketFixture.init(std.testing.allocator, testReady());
+        defer fixture.deinit();
+        const cache = try createCache(std.testing.allocator, fixture.connection);
+        defer releaseCache(cache);
+        try fixture.send(.snapshot_end, &.{});
+        try std.testing.expectError(error.UnexpectedFrame, observe(cache, fixture.connection, std.testing.allocator, 0, 0));
+        try std.testing.expect(cacheImpl(cache).raw.baseline == null);
+        try std.testing.expectError(error.ConnectionRetired, fixture.connection.readinessFd());
+    }
 }
 
 test "native scrolled viewport retains representable coordinates below an unprojected tail" {
@@ -977,16 +994,21 @@ test "native scrolled viewport retains representable coordinates below an unproj
 
 test "compressed cached foreign query preserves independent snapshots and attachment identity" {
     if (comptime @import("builtin").os.tag != .linux) return;
+    const observe = observeCachedCompressed;
+    const request_kind: terminal.protocol.Kind = .observe_delta_packed;
     const allocator = std.testing.allocator;
     var fixture = try SocketFixture.init(allocator, testReady());
     defer fixture.deinit();
     const cache = try createCache(allocator, fixture.connection);
-    defer releaseCache(cache);
+    var cache_live = true;
+    defer if (cache_live) releaseCache(cache);
     const full = try rawBody('A', 'Z');
-    try fixture.snapshot(100, .snapshot_raw_data, &full);
-    const first = try observeCachedCompressed(cache, fixture.connection, allocator, 0, 0);
+    const full_carriage = try packedTestCarriage(allocator, &full);
+    defer allocator.free(full_carriage);
+    try fixture.snapshot(100, .snapshot_packed_data, full_carriage);
+    const first = try observe(cache, fixture.connection, allocator, 0, 0);
     defer view.deinit(first);
-    try fixture.consumeKind(.observe_delta_compressed);
+    try fixture.consumeKind(request_kind);
     const delta = try deltaBody('B');
     var encoded: std.Io.Writer.Allocating = .init(allocator);
     defer encoded.deinit();
@@ -1000,20 +1022,20 @@ test "compressed cached foreign query preserves independent snapshots and attach
     try compressor.finish();
     const body = encoded.written();
     try fixture.snapshot(101, .snapshot_delta_compressed_data, body);
-    const next = try observeCachedCompressed(cache, fixture.connection, allocator, 100, 0);
+    const next = try observe(cache, fixture.connection, allocator, 100, 0);
     defer view.deinit(next);
-    try fixture.consumeKind(.observe_delta_compressed);
+    try fixture.consumeKind(request_kind);
     try std.testing.expectEqual(@as(u32, 'A'), view.scalars(first)[0]);
     try std.testing.expectEqual(@as(u32, 'B'), view.scalars(next)[0]);
     try std.testing.expectEqual(@as(u64, 100), changes(next).base_revision);
-    try std.testing.expectError(error.InvalidArgument, observeCachedCompressed(cache, fixture.connection, allocator, 101, 1));
-    try std.testing.expectError(error.InvalidArgument, observeCachedCompressed(cache, fixture.connection, allocator, 7, 0));
+    try std.testing.expectError(error.InvalidArgument, observe(cache, fixture.connection, allocator, 101, 1));
+    try std.testing.expectError(error.InvalidArgument, observe(cache, fixture.connection, allocator, 7, 0));
     try fixture.expectNoRequest();
     var ready = testReady();
     ready.client_id += 1;
     var other = try SocketFixture.init(allocator, ready);
     defer other.deinit();
-    try std.testing.expectError(error.InvalidArgument, observeCachedCompressed(cache, other.connection, allocator, 0, 0));
+    try std.testing.expectError(error.InvalidArgument, observe(cache, other.connection, allocator, 0, 0));
     try other.expectNoRequest();
     // The old wire mode remains usable with the same accepted baseline.
     try fixture.snapshot(102, .snapshot_delta_data, &delta);
@@ -1021,5 +1043,63 @@ test "compressed cached foreign query preserves independent snapshots and attach
     defer view.deinit(old_mode);
     try fixture.consumeRequest();
     try std.testing.expectEqual(@as(u32, 'B'), view.scalars(old_mode)[0]);
+    releaseCache(cache);
+    cache_live = false;
     try std.testing.expectEqual(@as(u32, 'A'), view.scalars(first)[0]);
+    try std.testing.expectEqual(@as(u32, 'B'), view.scalars(next)[0]);
+}
+
+fn packedTestCarriage(allocator: std.mem.Allocator, full: []const u8) ![]u8 {
+    var packed_body: std.ArrayList(u8) = .empty;
+    defer packed_body.deinit(allocator);
+    try terminal.protocol.packTextV1(allocator, full, &packed_body);
+    var output: std.Io.Writer.Allocating = .init(allocator);
+    defer output.deinit();
+    var prefix: [8]u8 = undefined;
+    std.mem.writeInt(u32, prefix[0..4], @intCast(full.len), .big);
+    std.mem.writeInt(u32, prefix[4..8], @intCast(packed_body.items.len), .big);
+    try output.writer.writeAll(&prefix);
+    const work = try allocator.alloc(u8, std.compress.flate.max_window_len);
+    defer allocator.free(work);
+    var compressor = try std.compress.flate.Compress.init(&output.writer, work, .zlib, .fastest);
+    try compressor.writer.writeAll(packed_body.items);
+    try compressor.finish();
+    return output.toOwnedSlice();
+}
+
+test "packed cached partial body retires stream without replay and keeps published snapshot" {
+    if (comptime @import("builtin").os.tag != .linux) return;
+    const allocator = std.testing.allocator;
+    var fixture = try SocketFixture.init(allocator, testReady());
+    defer fixture.deinit();
+    const cache = try createCache(allocator, fixture.connection);
+    defer releaseCache(cache);
+    const full = try rawBody('A', 'Z');
+    const carriage = try packedTestCarriage(allocator, &full);
+    defer allocator.free(carriage);
+    try fixture.snapshot(100, .snapshot_packed_data, carriage);
+    const held = try observeCachedCompressed(cache, fixture.connection, allocator, 0, 0);
+    defer view.deinit(held);
+    try fixture.consumeKind(.observe_delta_packed);
+    var begin = std.mem.zeroes(terminal.protocol.SnapshotBegin);
+    begin.revision = 101;
+    begin.terminal.revision = 8;
+    begin.terminal.rows = 2;
+    begin.terminal.columns = 1;
+    var payload: [terminal.protocol.payload_bytes.snapshot_begin]u8 = undefined;
+    terminal.protocol.encodeSnapshotBegin(&payload, begin);
+    try fixture.send(.snapshot_begin, &payload);
+    var header: [terminal.protocol.header_bytes]u8 = undefined;
+    try terminal.protocol.encodeHeader(&header, .{ .kind = .snapshot_packed_data, .payload_len = 4 });
+    try writeAll(fixture.peer, &header);
+    try writeAll(fixture.peer, "x");
+    try std.testing.expect(std.posix.errno(std.posix.system.shutdown(fixture.peer, std.posix.SHUT.WR)) == .SUCCESS);
+    try std.testing.expectError(error.ConnectionClosed, observeCachedCompressed(cache, fixture.connection, allocator, 100, 0));
+    try fixture.consumeKind(.observe_delta_packed);
+    try std.testing.expect(cacheImpl(cache).raw.baseline == null and cacheImpl(cache).raw.pending_delta == null);
+    try std.testing.expectError(error.ConnectionRetired, fixture.connection.readinessFd());
+    try std.testing.expectError(error.ConnectionRetired, observeCachedCompressed(cache, fixture.connection, allocator, 0, 0));
+    var byte: [1]u8 = undefined;
+    try std.testing.expectEqual(@as(isize, 0), std.posix.system.recvfrom(fixture.peer, &byte, 1, std.posix.MSG.DONTWAIT, null, null));
+    try std.testing.expectEqual(@as(u32, 'A'), view.scalars(held)[0]);
 }
