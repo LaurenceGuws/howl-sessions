@@ -433,3 +433,61 @@ panic/debug I/O vtable's unsupported iOS process-spawn branch. The mobile static
 root now retains FullPanic safety checks but writes a bounded fatal message using
 libc and traps; the operating system crash report owns stack inspection. It imports
 the unchanged published ABI rather than patching Zig, an SDK or dependency cache.
+
+## Production-window runtime matrix (2026-11-10)
+
+Captain narrowed the overnight work to benchmarks on Home or Note10, with no
+further mobile/toolchain remediation. Home completed 36 successful production
+runs: three rotated repetitions of howl-app, Slint CPU and Slint GPU, each with
+idle, btop, sparse and dense workloads. These used the normal optimized Slint
+dev profile and ReleaseSafe native code; howl-app was explicitly ReleaseSafe.
+The production windows replace the earlier fixture's 20-ms supervisory timer.
+All runs verified a 128×42 grid with Iosevka 16px. Native frame geometry was
+1024×840; Slint's 1024×936 frame includes 36px window decoration and 60px app
+chrome. Startup and UI selection were outside the sampled interval.
+
+Median host CPU, as a percentage of one core, in native / Slint CPU / Slint GPU
+order:
+- Idle: zero measured ticks / 0.09% / 0.14%.
+- btop: 0.18% / 1.14% / 0.50%.
+- Sparse 60Hz Cells: 2.38% / 24.59% / 7.14%.
+- Dense 60Hz Cells: 5.44% / 34.23% / 13.25%.
+
+Slint's separate Server adds about 2% of one core for sparse and 8% for dense
+workloads. Native remains faster; the CPU-rendered Slint path has the largest
+host CPU gap. Subcomponent costs were not isolated. These current-production comparisons are not a before/after claim
+against the earlier fixture runs while Dota was active. Idle/btop samples span
+about 21.85 seconds, active samples about 5.9 seconds. Tick precision is 10ms;
+zero observed ticks does not prove literally zero CPU use.
+
+Median btop host RSS/PSS/private MiB was 402.64/168.61/109.42 for native,
+306.97/149.17/111.50 for Slint CPU, and 298.08/140.35/102.72 for Slint GPU.
+Idle private memory was respectively 95.80, 104.72 and 97.75 MiB. Server memory
+was normally 4.8–5.3 MiB and btop RSS about 33.7 MiB, both separate from the host;
+btop PSS/private was inaccessible through normal proc permissions. Native's
+private-seat EGL/OpenGL driver mappings explain why RSS alone is misleading
+and do not invalidate Captain's physical-desktop observation. GPU mode logged
+RTX 3060/Vulkan. Separate post-sample framebuffer captures showed native 29–31MB,
+Slint CPU 52MB and Slint GPU 48MB. CPU terminal rendering still uses GPU-backed
+Slint UI composition; framebuffer allocations are not added to RSS as a claim
+about unique physical memory.
+
+All 18 active producers emitted 360 frames without skipped slots. Producer
+cadence is not presentation count, physical display FPS or input latency; those
+remain unmeasured. One empty stty-marker read was a harness race, fixed and
+rerun, with the failed pilot retained separately and excluded. No runtime source
+changed for these measurements. All owned processes and private seats drained.
+Complete samples, ranges, process breakdowns, binary hashes and cleanup receipts
+are under `horse-race-20261109/production-results.json` and adjacent production
+provenance/matrix files in Home's active workstream.
+
+Note10's native Debian canary did not produce a new executable. With no system
+FreeType/HarfBuzz development files, the bundled build ran under a 1500-MiB hard
+limit, 1200-MiB pressure threshold, zero swap, one CPU, -j1 and a 900-second bound.
+The watcher stopped it on the first memory.high event after roughly ten minutes;
+sampled peak was 1,257,979,904 bytes, high events 25, max/OOM/OOM-kill events zero.
+This was the conservative per-build guard, not evidence the phone exhausted
+system RAM. No retry, package installation or settings change followed. The
+partial cache is retained; owned units and private sockets are gone. Three old
+baseline integrity runs passed, but neither qualify current pins nor provide
+runtime benchmark evidence. Android APK/UI qualification remains open.
