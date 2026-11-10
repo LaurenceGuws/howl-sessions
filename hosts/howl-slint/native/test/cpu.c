@@ -127,8 +127,80 @@ static int background_equivalence(void) {
     }
     return 0;
 }
+/* Independent per-pixel oracle for initialization followed by ordered solids.
+ * The first-command color differs from frame background and the dirty buffer;
+ * exercise full/padded coverage, near misses on every edge and all alpha values. */
+static int initial_solid_equivalence(void) {
+    uint8_t storage[7 * 5 * 4 + 2], expected[7 * 5 * 4];
+    struct cpu_surface surface = {.pixels = storage + 1};
+    hrc_frame_info info = {.surface_width = 7, .surface_height = 5,
+        .background_rgba = 0x21875931, .command_count = 3};
+    const hrc_command full = {.tag = HRC_SOLID, .color_rgba = 0xffe12b67,
+        .destination_width = 7, .destination_height = 5,
+        .clip_width = 7, .clip_height = 5};
+    for (unsigned variant = 0; variant < 14; variant++) {
+        hrc_command commands[] = {full,
+            {.tag = HRC_SOLID, .color_rgba = 0x737a215b,
+             .destination_x = 1, .destination_y = 1,
+             .destination_width = 4, .destination_height = 3,
+             .clip_width = 7, .clip_height = 5},
+            {.tag = HRC_SOLID, .color_rgba = 0xff1937a2,
+             .destination_x = 3, .destination_width = 4, .destination_height = 5,
+             .clip_x = 4, .clip_y = 2, .clip_width = 3, .clip_height = 2}};
+        hrc_command *first = &commands[0];
+        switch (variant) {
+            case 0: break;
+            case 1: first->destination_width++; first->destination_height++;
+                    first->clip_width++; first->clip_height++; break;
+            case 2: first->destination_x = 1; break;
+            case 3: first->destination_y = 1; break;
+            case 4: first->clip_x = 1; break;
+            case 5: first->clip_y = 1; break;
+            case 6: first->destination_width--; break;
+            case 7: first->destination_height--; break;
+            case 8: first->clip_width--; break;
+            case 9: first->clip_height--; break;
+            case 10: first->destination_x = -1; first->destination_width++; break;
+            case 11: first->clip_y = -1; first->clip_height++; break;
+            case 12: first->destination_width = 0; break;
+            case 13: first->clip_height = 0; break;
+        }
+        for (unsigned alpha = 0; alpha < 256; alpha++) {
+            first->color_rgba = alpha << 24 | 0xe12b67;
+            memset(storage, 0x5a, sizeof storage);
+            for (int y = 0; y < 5; y++) for (int x = 0; x < 7; x++) {
+                uint8_t *pixel = expected + (y * 7 + x) * 4;
+                pixel[0] = 0x31; pixel[1] = 0x59; pixel[2] = 0x87; pixel[3] = 255;
+                for (unsigned n = 0; n < 3; n++) {
+                    const hrc_command *c = &commands[n];
+                    if (x >= c->destination_x && y >= c->destination_y &&
+                        x < c->destination_x + c->destination_width &&
+                        y < c->destination_y + c->destination_height &&
+                        x >= c->clip_x && y >= c->clip_y &&
+                        x < c->clip_x + c->clip_width && y < c->clip_y + c->clip_height)
+                        reference_blend(pixel, c->color_rgba, 255);
+                }
+            }
+            CHECK(cpu_paint(&surface, &info, commands, NULL) == 0);
+            CHECK(memcmp(surface.pixels, expected, sizeof expected) == 0);
+            CHECK(storage[0] == 0x5a && storage[sizeof storage - 1] == 0x5a);
+        }
+    }
+    /* Textured command zero is never initialization, even with opaque tint. */
+    hrc_command missing = full;
+    missing.tag = HRC_ALPHA_MASK;
+    missing.source_width = 7; missing.source_height = 5;
+    missing.resource = missing.generation = 1;
+    info.command_count = 1;
+    CHECK(cpu_paint(&surface, &info, &missing, NULL) != 0);
+    hrc_command invalid_suffix[] = {full, missing};
+    info.command_count = 2;
+    CHECK(cpu_paint(&surface, &info, invalid_suffix, NULL) != 0);
+    return 0;
+}
 int main(void) {
     CHECK(background_equivalence() == 0);
+    CHECK(initial_solid_equivalence() == 0);
     CHECK(blend_equivalence() == 0);
     CHECK(mask_one_to_one() == 0);
     CHECK(mask_alpha_equivalence() == 0);
@@ -179,6 +251,6 @@ int main(void) {
     CHECK(wide.width == 2140 && wide.height == 2);
     CHECK(wide_pixels[2140u * 2u * 4u - 4] == 0x56);
     free(wide_pixels);
-    puts("CPU_PASS: exhaustive alpha/coverage equivalence, clipping, alpha, RGBA, missing/truncated resources, bounds");
+    puts("CPU_PASS: full-solid initialization, exhaustive alpha/coverage equivalence, clipping, alpha, RGBA, missing/truncated resources, bounds");
     return 0;
 }

@@ -27,14 +27,30 @@ uint32_t cpu_paint(struct cpu_surface *p, const hrc_frame_info *f,
     return 1;
   p->width = f->surface_width;
   p->height = f->surface_height;
+  /* Canonical frames normally begin with an opaque, full-surface solid.
+   * Use it as initialization instead of clearing and overwriting every pixel.
+   * Only fold command zero: later commands must retain their source-over order.
+   * Partial clips, alpha and textured commands keep the ordinary clear. */
+  uint32_t initial = f->background_rgba;
+  uint32_t first_command = 0;
+  if (f->command_count) {
+    const hrc_command *c = &commands[0];
+    if (c->tag == HRC_SOLID && (c->color_rgba >> 24) == 255 &&
+        c->destination_x == 0 && c->destination_y == 0 &&
+        c->clip_x == 0 && c->clip_y == 0 &&
+        c->destination_width >= p->width && c->destination_height >= p->height &&
+        c->clip_width >= p->width && c->clip_height >= p->height) {
+      initial = c->color_rgba;
+      first_command = 1;
+    }
+  }
   const uint8_t background[4] = {
-      (uint8_t)f->background_rgba, (uint8_t)(f->background_rgba >> 8),
-      (uint8_t)(f->background_rgba >> 16), 255};
+      (uint8_t)initial, (uint8_t)(initial >> 8), (uint8_t)(initial >> 16), 255};
   uint8_t *pixels = p->pixels;
   size_t pixel_count = (size_t)p->width * p->height;
   for (size_t n = 0; n < pixel_count; n++)
     memcpy(pixels + n * 4, background, sizeof background);
-  for (uint32_t n = 0; n < f->command_count; n++) {
+  for (uint32_t n = first_command; n < f->command_count; n++) {
     const hrc_command *c = &commands[n];
     const hrc_upload *u = NULL;
     if (c->tag != HRC_SOLID) {

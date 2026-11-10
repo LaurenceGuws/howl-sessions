@@ -544,3 +544,38 @@ FPS. A separate FemtoVG backend experiment saved CPU but added roughly 52 MiB PS
 and 32 MiB private memory, so the default backend remains unchanged. Temporary
 phase instrumentation was removed. Samples, isolated replay, hashes and gates
 are in Home's active workstream under `cpu-phase-20261110/`.
+
+
+### Fold opaque surface initialization (2026-11-10)
+
+A scratch-only packed-observation probe found just one repeated command set in
+363 sparse Cells deliveries, none in 362 dense deliveries, and one in 17 btop
+deliveries. Canonical content revision advanced on every capture in these runs.
+That does not justify retaining another scene to reject unchanged frames here.
+
+Instead, command zero's opaque full-surface solid can initialize the CPU surface
+rather than overwrite a separate background clear. Origin, extent and clip must
+all prove full coverage; alpha, textured and partial first commands keep the
+ordinary path. Command order, integer blending, errors and pixel ownership stay
+unchanged. There is no new cache, allocation, backend or ABI. An independent
+per-pixel oracle covers all alpha values and 14 coverage/clip cases, unaligned
+output, sentinel bounds and missing resources before/after the folded command.
+
+Six alternating dense-frame replay rounds saved 9.38% paint thread CPU with exact
+full-buffer parity. Three alternating native-adapter pairs per workload measured
+sparse client CPU at 273.87 to 238.23 ms (13.0% less) and dense at 850.94 to
+820.53 ms (3.6% less), including transport/canonical capture but not Slint UI.
+The matched production-window matrix was mixed: sparse host medians were 23.14%
+to 16.08% of one core; dense were 27.55% to 28.73%, with overlapping ranges and
+substantial independent UI-thread variation. Those whole-host deltas are not
+attributed to the paint change; no broad host speedup or memory saving is claimed.
+All accepted active producers emitted 360 frames without skipped slots. Producer
+cadence is not displayed FPS or latency.
+
+CPU/GPU unit and clippy, formatting, native/live, sanitizer, private-window parity
+and viewport/failure checks, and root ReleaseSafe test/check/audit passed on Home.
+A mismatched-feature pilot was stopped and excluded; a private screenshot failure
+preceded workload start and was retained separately. No phone build, physical
+GUI automation, package-pin edit or existing-service restart occurred. Evidence,
+precise limitations and reproducible commands are in Home's active workstream
+under `cpu-phase-20261110/next-win/`.

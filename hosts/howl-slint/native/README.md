@@ -12,6 +12,11 @@ action attachment. Each has one owner and an independent interrupt. Observation
 blocks on the last delivery revision; action calls remain available while it
 waits. Only actions acquire geometry leadership. `cpu.c` consumes
 canonical Render commands; Howl still owns terminal semantics and text shaping.
+If command zero is an opaque solid whose destination and clip cover the full
+surface from the origin, its color initializes the surface directly. This avoids
+clearing and then overwriting the same pixels; all other first commands retain
+the ordinary opaque background clear. Command order, clipping and source-over
+arithmetic are unchanged, with no retained scene or extra pixel storage.
 A frame is painted while its lease is live, released, then pixels are borrowed
 until the next call. Rust copies them before another native call. Client Render 0.1.4-dev leases its
 existing atlas scratch for the single outstanding native frame rather than
