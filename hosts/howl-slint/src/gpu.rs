@@ -2,7 +2,7 @@
 //! Only UI callbacks call `present` or submit work. The observer copies canonical
 //! frames into a bounded mailbox; it never submits GPU commands. No notifier,
 //! host TLS owner, second device, or initialization-order workaround is required.
-use crate::frame::{Frame, MAX_COMMANDS};
+use crate::frame::{Command, Frame, MAX_COMMANDS};
 use slint::wgpu_30::wgpu;
 use std::{
     collections::BTreeMap,
@@ -12,8 +12,32 @@ use std::{
     },
 };
 use wgpu::util::DeviceExt;
-fn bytes(values: &[u32]) -> Vec<u8> {
-    values.iter().flat_map(|v| v.to_le_bytes()).collect()
+// Store upload words in byte order as they are produced. Flattening borrows
+// this storage directly, without a second allocation or a native-endian cast.
+fn command_record(c: &Command) -> [[u8; 4]; 20] {
+    [
+        c.destination_x as u32,
+        c.destination_y as u32,
+        u32::from(c.destination_width),
+        u32::from(c.destination_height),
+        u32::from(c.source_x),
+        u32::from(c.source_y),
+        u32::from(c.source_width),
+        u32::from(c.source_height),
+        c.color_rgba & 255,
+        (c.color_rgba >> 8) & 255,
+        (c.color_rgba >> 16) & 255,
+        c.color_rgba >> 24,
+        u32::from(c.tag),
+        0,
+        0,
+        0,
+        c.clip_x as u32,
+        c.clip_y as u32,
+        u32::from(c.clip_width),
+        u32::from(c.clip_height),
+    ]
+    .map(u32::to_le_bytes)
 }
 pub struct Renderer {
     d: wgpu::Device,
@@ -224,33 +248,14 @@ impl Renderer {
             } else {
                 (c.resource, c.generation)
             };
-            records.extend([
-                c.destination_x as u32,
-                c.destination_y as u32,
-                u32::from(c.destination_width),
-                u32::from(c.destination_height),
-            ]);
-            records.extend([
-                u32::from(c.source_x),
-                u32::from(c.source_y),
-                u32::from(c.source_width),
-                u32::from(c.source_height),
-            ]);
-            records.extend((0..4).map(|n| (c.color_rgba >> (n * 8)) & 255));
-            records.extend([u32::from(c.tag), 0, 0, 0]);
-            records.extend([
-                c.clip_x as u32,
-                c.clip_y as u32,
-                u32::from(c.clip_width),
-                u32::from(c.clip_height),
-            ]);
+            records.extend(command_record(c));
             if let Some(last) = batches.last_mut().filter(|b| b.0 == active) {
                 last.2 = index as u32 + 1;
             } else {
                 batches.push((active, index as u32, index as u32 + 1));
             }
         }
-        let data = bytes(&records);
+        let data = records.as_flattened();
         assert!(data.len() <= MAX_COMMANDS * 80);
         if data.len().max(80) > self.capacity {
             self.capacity = data.len().max(80).next_power_of_two();
@@ -261,8 +266,14 @@ impl Renderer {
                 mapped_at_creation: false,
             }));
         }
-        q.write_buffer(self.vertex.as_ref().unwrap(), 0, &data);
-        q.write_buffer(&self.uniform, 0, &bytes(&[f.width, f.height, 0, 0]));
+        q.write_buffer(self.vertex.as_ref().unwrap(), 0, data);
+        q.write_buffer(
+            &self.uniform,
+            0,
+            [f.width, f.height, 0, 0]
+                .map(u32::to_le_bytes)
+                .as_flattened(),
+        );
         let layout = self.pipeline.get_bind_group_layout(0);
         let draws = batches
             .iter()
@@ -509,8 +520,71 @@ impl Drop for Renderer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::frame::{Atlas, Command};
+    use crate::frame::Atlas;
     use std::{cell::Cell, rc::Rc};
+    #[test]
+    fn command_record_layout() {
+        let c = Command {
+            destination_x: i32::MIN,
+            destination_y: i32::MAX,
+            destination_width: 0,
+            destination_height: u16::MAX,
+            source_x: 0x1234,
+            source_y: 0xabcd,
+            source_width: u16::MAX,
+            source_height: 0,
+            color_rgba: 0x80402010,
+            clip_x: -2,
+            clip_y: -1,
+            clip_width: u16::MAX,
+            clip_height: 0,
+            // Resource identities select batches, not vertex attributes.
+            resource: u64::MAX,
+            generation: u64::MAX,
+            ..Default::default()
+        };
+        for tag in 0..=u8::MAX {
+            let record = command_record(&Command { tag, ..c });
+            let expected: [u32; 20] = [
+                0x80000000,
+                0x7fffffff,
+                0,
+                65535,
+                0x1234,
+                0xabcd,
+                65535,
+                0,
+                0x10,
+                0x20,
+                0x40,
+                0x80,
+                u32::from(tag),
+                0,
+                0,
+                0,
+                0xfffffffe,
+                0xffffffff,
+                65535,
+                0,
+            ];
+            assert_eq!(record, expected.map(u32::to_le_bytes));
+            assert_eq!(record.as_flattened().len(), 80);
+            assert_eq!(
+                &record.as_flattened()[..8],
+                &[0, 0, 0, 128, 255, 255, 255, 127]
+            );
+        }
+        let records: Vec<[u8; 4]> = [c, Command::default()]
+            .iter()
+            .flat_map(command_record)
+            .collect();
+        assert_eq!(records.as_flattened().len(), 160);
+        assert_eq!(
+            &records.as_flattened()[..80],
+            command_record(&c).as_flattened()
+        );
+        assert_eq!(&records.as_flattened()[80..], &[0; 80]);
+    }
     fn fixture(n: u64) -> Frame {
         let (width, height) = if n % 3 == 2 { (37, 29) } else { (64, 48) };
         let solid = Command {

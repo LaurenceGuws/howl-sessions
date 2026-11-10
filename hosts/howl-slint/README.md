@@ -137,7 +137,11 @@ while the native frame lease is alive. Its bounded CPU residency cache retains
 immutable atlas bytes; every published frame includes shared ownership of all
 resources it needs, even when earlier pending frames are replaced. Fingerprints
 are computed once per upload, not every presentation. Only UI callbacks compose
-images, on the same explicit WGPU Device/Queue supplied to Slint. One pending frame and two output
+images, on the same explicit WGPU Device/Queue supplied to Slint. Vertex attributes
+are packed once into explicit little-endian word bytes, then borrowed directly
+for upload rather than copied into a second byte vector. The 80-byte command
+layout and consecutive resource batches are unchanged; no retained scene or
+new resource lifetime is introduced. One pending frame and two output
 textures bound retention. The currently published image is never rewritten.
 Slint scene encoding, property replacement and our submissions serialize on the
 UI thread; all GPU sampling and writes serialize on the same queue. Completion

@@ -579,3 +579,41 @@ preceded workload start and was retained separately. No phone build, physical
 GUI automation, package-pin edit or existing-service restart occurred. Evidence,
 precise limitations and reproducible commands are in Home's active workstream
 under `cpu-phase-20261110/next-win/`.
+
+
+### Pack GPU command uploads once (2026-11-10)
+
+The next UI investigation did not justify a scene cache or backend change.
+Chrome cache hints were removed: the combined hint changed exact tab-icon pixels
+at scale 2; a status-only hint preserved pixels but did not reduce measured UI
+CPU. The existing unchanged-command probe also remains a rejection, not a cache
+proposal. Howl-app's direct bounded geometry storage is a useful source lesson;
+its local Instance/content-retention architecture is not imported into this host.
+
+Instead, the GPU compositor previously built native u32 records and then
+allocated/copied a second byte vector. It now emits one fixed-size record of
+explicit little-endian word bytes per command and borrows that storage for upload.
+The uniform uses stack bytes. There is no unsafe cast, new dependency, retained
+cache, backend switch, ABI change, or texture/resource lifetime change. The
+80-byte vertex layout, command bounds and consecutive resource batches stay put.
+
+Six alternating dense-frame replay rounds (5,032 commands) measured packing
+thread CPU at 305.60 to 36.80 microseconds per frame, 88.0% less, with all 402,560
+upload bytes identical. Layout tests cover signed coordinate extremes, u16
+bounds, color channels, tags, padding and concatenated records. Existing private
+GPU window tests still compare exact pixels across resource replacement/resize.
+
+Three matched production GPU pairs per workload had sparse host CPU medians
+8.47% to 7.12% of one core and dense 13.89% to 14.90%. Ranges overlap; UI-thread
+CPU medians were 0.32 to 0.26 seconds sparse and 0.40 to 0.38 dense, while other
+thread costs varied. These do not establish an overall host speedup or memory
+saving. The justified claim is isolated packing work removed, not displayed FPS,
+physical presentation latency or a CPU-route optimization. All 14 GPU/CPU-canary
+producers emitted 360 frames without skipped slots, at matching fonts/grid.
+
+CPU/GPU unit and clippy, formatting, native CPU/live and sanitizer, private-window
+viewport/parity/failure, WGPU TLS teardown, and root ReleaseSafe test/check/audit
+passed. No pins, Server semantics, physical desktop, existing services or phone
+builds changed. Reproduction, binaries, raw measurements, rejected probes and
+limits are in Home's active workstream at
+`cpu-phase-20261110/ui-runtime/PACKING_RESULTS.md`.
