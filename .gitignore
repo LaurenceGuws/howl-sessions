@@ -4,4 +4,4 @@ zig-pkg/
 .dart_tool/
 .fvm/
 build/
-/hosts/howl-slint/target
+/defered_hosts/howl-slint/target
