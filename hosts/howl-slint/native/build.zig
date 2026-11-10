@@ -32,6 +32,12 @@ pub fn build(b: *std.Build) void {
     });
     b.step("build-static", "Install the complete native composition for static app linkage").dependOn(&install_object.step);
     cpuTest(b, target, optimize, library);
+    const remote_test_module = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+    remote_test_module.linkLibrary(library);
+    remote_test_module.addIncludePath(b.path("."));
+    remote_test_module.addCSourceFiles(.{ .files = &.{ "test/remote.c", "cpu.c" }, .flags = &.{ "-std=c11", "-Wall", "-Wextra", "-Werror" } });
+    const remote_tests = b.addExecutable(.{ .name = "remote-test", .root_module = remote_test_module });
+    b.step("test-remote", "Test observer cache ownership and failed-step cleanup without transport I/O").dependOn(&b.addRunArtifact(remote_tests).step);
     b.step("test", "Qualify the pinned remote Sessions ABI set").dependOn(&render.builder.top_level_steps.get("test").?.step);
     const live_module = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
     live_module.linkLibrary(library);

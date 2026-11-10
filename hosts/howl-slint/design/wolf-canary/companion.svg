@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img"><title>Companion wolf</title>
+<g id="head" fill="#8eb6a0" stroke="#29433b" stroke-width="3" stroke-linejoin="round"><path d="M18 43 14 12 36 27 Q48 22 60 27 L82 12 78 43 86 56 72 58 76 68 61 74 Q48 89 35 74 L20 68 24 58 10 56Z"/></g>
+<g id="inner-ears" fill="#d4e4d7"><path d="m20 22 3 18 10-10Z"/><path d="m76 22-3 18-10-10Z"/></g>
+<path id="muzzle" fill="#e5eee4" d="M48 44 Q39 48 29 64 Q33 78 48 81 Q63 78 67 64 Q57 48 48 44Z"/>
+<g id="eyes" fill="#233b35"><ellipse cx="32" cy="48" rx="3" ry="3.5"/><ellipse cx="64" cy="48" rx="3" ry="3.5"/></g>
+<path id="nose" fill="#233b35" d="M41 64 Q48 60 55 64 Q53 71 48 72 Q43 71 41 64Z"/>
+<path id="smile" d="M48 72v4m0-1q-5 4-9 0m9 0q5 4 9 0" fill="none" stroke="#233b35" stroke-width="2.5" stroke-linecap="round"/></svg>

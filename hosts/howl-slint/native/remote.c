@@ -2,6 +2,7 @@
 #include "remote.h"
 #include "howl_server_client_render.h"
 #include "cpu.h"
+#include <assert.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -23,6 +24,7 @@ struct remote_client {
     hsc_control *control;
     hsc_tree *tree;
     hsc_attachment *attachment;
+    hsc_cache *cache; /* Client-owned baseline for this exact attachment. */
     hsc_interrupt *interrupt; /* Borrowed until worker finishes. */
     hsr_renderer *renderer;
     hrc_cell_size cell;
@@ -38,6 +40,7 @@ struct remote_client {
 };
 uint32_t remote_close(struct remote_client *p) {
     if (!p) return HSC_OK;
+    hsc_cache_release(&p->cache);
     hsc_attachment_release(&p->attachment);
     uint32_t status = hsr_try_destroy(&p->renderer);
     if (status) return 100 + status;
@@ -102,6 +105,7 @@ uint32_t remote_item(const struct remote_client *p, size_t index, char *name, si
 uint32_t remote_attach(struct remote_client *p, uint64_t server, uint64_t session, uint64_t instance,
                        const char *const *fonts, const char *const *fallbacks, size_t count, uint16_t pixels) {
     if (count > 24 || !fonts || !fonts[0]) return HSC_INVALID_ARGUMENT;
+    hsc_cache_release(&p->cache);
     hsc_attachment_release(&p->attachment);
     p->revision = 0;
     uint32_t status = hsr_try_destroy(&p->renderer);
@@ -186,8 +190,14 @@ uint32_t remote_visit(struct remote_client *p, const hrc_residency *residency, s
     if (!p->attachment) return HSC_UNAVAILABLE;
     hsc_snapshot *snapshot = NULL;
     hsr_frame *frame = NULL;
-    uint32_t status = hsc_observe(p->attachment, p->revision, 0, &snapshot);
-    if (status) return status;
+    uint32_t status;
+    if (!p->cache) {
+        assert(p->revision == 0);
+        status = hsc_cache_create(HSC_ABI_VERSION, p->attachment, &p->cache);
+        if (status) return status; /* No observation attempted. */
+    }
+    status = hsc_observe_cached_compressed(p->attachment, p->cache, p->revision, 0, &snapshot);
+    if (status) goto done;
     hsc_metadata meta = {0};
     status = hsc_snapshot_metadata(snapshot, &meta);
     if (status) goto done;
@@ -203,6 +213,13 @@ uint32_t remote_visit(struct remote_client *p, const hrc_residency *residency, s
 done:
     hsr_frame_release(&frame);
     hsc_snapshot_release(&snapshot);
+    if (status) {
+        /* Client may have accepted a transaction before capture/consume failed.
+         * Discard its baseline only after releasing every dependent local lease.
+         * A later explicit call starts at zero; never retry I/O in this call. */
+        hsc_cache_release(&p->cache);
+        p->revision = 0;
+    }
     return status;
 }
 uint32_t remote_step(struct remote_client *p, const uint8_t **pixels, uint32_t *width, uint32_t *height, int *exited) {

@@ -22,7 +22,12 @@ uint32_t remote_actions_resize(struct remote_actions *, uint32_t, uint32_t, uint
 /* Runs synchronously on the serial client owner. The canonical view and all
  * referenced pixels borrow only this callback; copy before returning if another
  * thread will consume them. Return HSC_OK only after taking ownership. Failure
- * releases the lease without acknowledging the delivery revision. Never unwind
+ * releases frame/snapshot, discards the Client baseline and resets revision zero,
+ * returning the original error without an I/O retry. A later explicit call can
+ * resync only on a still-usable stream; malformed/partial I/O retires it. Invalid
+ * arguments rejected before a step leave the prior acknowledgement intact.
+ * Observation requires a Server supporting request64/raw-full58/delta65; SRVR2
+ * alone is not a capability guarantee. Never unwind
  * through this C callback or re-enter the client from it. Residency names actual
  * caller-owned immutable pixels; a dropped presentation is not residency loss. */
 typedef uint32_t (*remote_frame_consumer)(void *, const hrc_frame_view *);

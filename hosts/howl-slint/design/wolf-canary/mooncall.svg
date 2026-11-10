@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img"><title>Mooncall wolf</title>
+<circle id="moon" cx="65" cy="25" r="15" fill="#d9cfa7"/>
+<path id="wolf" fill="#8eb6a0" d="M16 82 27 63 33 44 27 22 45 33 55 28 62 17 69 22 59 42 52 51 55 67 66 82Z"/>
+<path id="throat" fill="#e4eadd" d="m59 36-7 16 3 15 11 15H46l-4-20 4-13Z"/>
+<path id="ear" fill="#38564a" d="m33 30 4 13 6-7Z"/>
+<path id="nose" fill="#29433b" d="m61 18 4-5 6 5-3 5Z"/>
+<path id="eye" d="m46 40 4-2" stroke="#29433b" stroke-width="3" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img"><title>Lookout wolf</title>
+<path id="silhouette" fill="#a7c5b2" d="M13 69 23 54 22 17 40 31 53 26 66 12 68 43 86 53 Q90 59 83 65 L68 70 Q65 81 52 84 L26 82 31 72Z"/>
+<path id="ear" fill="#38564a" d="m28 28 3 21 8-12Z"/>
+<path id="cheek" fill="#e9eee1" d="M50 49 Q63 52 75 55 L83 61 65 67 Q62 80 49 80 L38 75 44 67 36 66Z"/>
+<path id="nose" fill="#29433b" d="m80 51 7 3q3 4-2 7l-6-3Z"/>
+<path id="eye" d="m51 43 7 1" stroke="#29433b" stroke-width="4" stroke-linecap="round"/>
+<path id="mouth" d="m66 66 12-3" stroke="#29433b" stroke-width="2.5" stroke-linecap="round"/></svg>
